@@ -1,0 +1,15 @@
+# OS / editor
+.DS_Store
+
+# Local secrets / env
+.env
+*.local
+
+# etcd snapshots written by kubeadm/etcd-backup.sh
+/backups/
+
+# image tarballs created by kubeadm/load-images.sh
+*.tar
+
+# never commit a real CA bundle (kept in ~/.movieverse-ca, outside the repo)
+*.pem

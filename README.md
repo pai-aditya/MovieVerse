@@ -21,7 +21,8 @@ Welcome to MovieVerse, an innovative full-stack application that revolutionizes 
 
 * **Frontend:** React with Tailwind CSS
 * **Backend:** Node.js with Express
-* **Database:** MongoDB
+* **Database:** PostgreSQL
+* **Deployment:** Kubernetes — a real multi-node **kubeadm** cluster (lima VMs) with Prometheus/Grafana, Loki, ArgoCD, Kustomize. See [`kubeadm/README.md`](kubeadm/README.md) (cluster) and [`k8s/README.md`](k8s/README.md) (manifests)
 
 ## Getting Started
 
@@ -31,12 +32,13 @@ Clone the repository
 ### Update .env file
 
 
-This project utilizes an .env file to manage environment-specific configuration settings. Ensure the following variables are properly set in your .env file in your backend folder:
+This project utilizes an .env file to manage environment-specific configuration settings. Copy `.env.example` to `backend/.env` and set the following variables:
 
-- `MONGO_CONNECTION:` Connection string to your MongoDB cluster where user data for MovieVerse is stored. Please follow [This tutorial](https://dev.to/dalalrohit/how-to-connect-to-mongodb-atlas-using-node-js-k9i) to create your mongoDB connection url, which you'll use as your MONGO_CONNECTION.
+- `DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME:` PostgreSQL connection details (or set a single `DATABASE_URL`). The schema is created automatically on first boot (and by `npm run migrate`).
 
+- `SESSION_SECRET:` Secret used to sign session cookies. Sessions are stored in PostgreSQL so the backend can run as multiple replicas.
 
-- `CLIENT_ID and CLIENT_SECRET:` Google OAuth credentials required for authentication within the application. To get your Google ClientID for authentication, go to the [credential Page ](https://console.cloud.google.com/apis/credentials) (if you are new, then [create a new project first](https://console.cloud.google.com/projectcreate) and follow the following steps).
+- `CLIENT_ID and CLIENT_SECRET:` Optional Google OAuth credentials. Leave blank to use username/password auth only. To get a Google ClientID, go to the [credential Page](https://console.cloud.google.com/apis/credentials) (if you are new, [create a new project first](https://console.cloud.google.com/projectcreate)).
 
 
 - `CLIENT_URL:` The URL where the frontend of MovieVerse is hosted. (e.g., http://localhost:5173)
@@ -45,6 +47,7 @@ This project utilizes an .env file to manage environment-specific configuration 
 
 **Server side**
 
+Requires a running PostgreSQL instance matching your `backend/.env` (the schema is created automatically on startup).
 
 ```
 cd backend
@@ -55,10 +58,12 @@ npm i
 ```
 
 ```
-nodemon index.js
+npm run dev
 ```
 
 The server will start running on localhost:5555.
+
+> Prefer Kubernetes? Skip the manual setup and run the whole stack (app + PostgreSQL + monitoring) on a local `kind` cluster — see [`k8s/README.md`](k8s/README.md).
 
 ***Client Side***
 

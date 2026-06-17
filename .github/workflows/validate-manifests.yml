@@ -1,0 +1,45 @@
+name: Validate Kubernetes Manifests
+
+on:
+  push:
+    branches: [main]
+    paths: ["k8s/**", ".github/workflows/validate-manifests.yml"]
+  pull_request:
+    paths: ["k8s/**"]
+
+jobs:
+  kustomize-build-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSLo kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Build overlays with kustomize
+        run: |
+          for overlay in k8s/kustomize/overlays/*/; do
+            echo "::group::kustomize build $overlay"
+            kubectl kustomize --load-restrictor LoadRestrictionsNone "$overlay" > "/tmp/$(basename "$overlay").yaml"
+            echo "::endgroup::"
+          done
+
+      - name: Validate rendered manifests
+        run: |
+          for f in /tmp/*.yaml; do
+            echo "Validating $f"
+            kubeconform -strict -ignore-missing-schemas -summary "$f"
+          done
+
+      - name: Validate standalone infra manifests
+        run: |
+          kubeconform -strict -ignore-missing-schemas -summary \
+            k8s/monitoring/prometheus.yaml \
+            k8s/monitoring/grafana.yaml \
+            k8s/logging/loki.yaml \
+            k8s/logging/promtail.yaml \
+            k8s/namespaces/network-policies.yaml
