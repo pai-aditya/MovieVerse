@@ -1,0 +1,18 @@
+# PriorityClasses let the scheduler preempt lower-priority pods under pressure.
+# Postgres (stateful, hard to reschedule) gets higher priority than the
+# stateless web tier.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: movieverse-database
+value: 1000000
+globalDefault: false
+description: "Critical stateful database workloads."
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: movieverse-web
+value: 100000
+globalDefault: false
+description: "Stateless web/API workloads."

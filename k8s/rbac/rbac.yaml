@@ -1,0 +1,69 @@
+# --- Application ServiceAccount + least-privilege Role ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: movieverse-backend
+  namespace: movieverse
+automountServiceAccountToken: false
+---
+# The backend only needs to read its own ConfigMap/Secret. Namespace-scoped Role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: movieverse-backend
+  namespace: movieverse
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: movieverse-backend
+  namespace: movieverse
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: movieverse-backend
+subjects:
+  - kind: ServiceAccount
+    name: movieverse-backend
+    namespace: movieverse
+---
+# --- A read-only "developer" ClusterRole for humans (debugging) ---
+# Aggregated-style example: get/list/watch across common namespaced resources.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: movieverse-developer-readonly
+rules:
+  - apiGroups: ["", "apps", "batch"]
+    resources:
+      - pods
+      - pods/log
+      - services
+      - deployments
+      - statefulsets
+      - replicasets
+      - jobs
+      - cronjobs
+      - configmaps
+      - events
+    verbs: ["get", "list", "watch"]
+---
+# Bind the read-only role to a (hypothetical) developers group, scoped to the
+# movieverse namespace via a RoleBinding referencing the ClusterRole.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developers-readonly
+  namespace: movieverse
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: movieverse-developer-readonly
+subjects:
+  - kind: Group
+    name: movieverse:developers
+    apiGroup: rbac.authorization.k8s.io

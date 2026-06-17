@@ -1,0 +1,17 @@
+# Caps total resource consumption and object counts in the application namespace.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: movieverse-quota
+  namespace: movieverse
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 4Gi
+    limits.cpu: "8"
+    limits.memory: 8Gi
+    pods: "50"
+    services: "10"
+    persistentvolumeclaims: "5"
+    count/deployments.apps: "10"
+    count/jobs.batch: "10"

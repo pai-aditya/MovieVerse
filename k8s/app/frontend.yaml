@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: movieverse-frontend
+  namespace: movieverse
+  labels:
+    app: movieverse-frontend
+    tier: frontend
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: movieverse-frontend
+  template:
+    metadata:
+      labels:
+        app: movieverse-frontend
+        tier: frontend
+    spec:
+      priorityClassName: movieverse-web
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: movieverse-frontend
+      containers:
+        - name: frontend
+          # Built with VITE_SERVER_URL=http://movieverse.local/api so the SPA
+          # talks to the API on the same origin.
+          image: movieverse-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: movieverse-frontend
+  namespace: movieverse
+  labels:
+    app: movieverse-frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: movieverse-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

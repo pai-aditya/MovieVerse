@@ -1,0 +1,34 @@
+# Single host, path-based routing:
+#   movieverse.local/api/*  -> backend  (rewrites /api/foo -> /foo)
+#   movieverse.local/*      -> frontend (SPA)
+# Same-origin keeps session cookies first-party.
+#
+# Add to /etc/hosts:  127.0.0.1  movieverse.local
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: movieverse
+  namespace: movieverse
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: movieverse.local
+      http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: movieverse-backend
+                port:
+                  number: 5555
+          - path: /()(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: movieverse-frontend
+                port:
+                  number: 80

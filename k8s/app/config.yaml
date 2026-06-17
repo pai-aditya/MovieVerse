@@ -1,0 +1,16 @@
+# Non-secret backend configuration. Mounted into the backend pods via envFrom.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: movieverse
+data:
+  NODE_ENV: "production"
+  PORT: "5555"
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  # Same-origin: the SPA is served at movieverse.local and calls the API at
+  # movieverse.local/api (ingress rewrites /api -> /). Keeps cookies first-party.
+  CLIENT_URL: "http://movieverse.local"
+  SERVER_URL: "http://movieverse.local/api"
+  COOKIE_SECURE: "false"

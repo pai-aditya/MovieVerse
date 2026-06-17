@@ -1,0 +1,22 @@
+# Default requests/limits for any container that doesn't set its own, plus a
+# floor/ceiling. Lets the ResourceQuota be enforced even for bare pods.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: movieverse-limits
+  namespace: movieverse
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 250m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      min:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: "2"
+        memory: 1Gi

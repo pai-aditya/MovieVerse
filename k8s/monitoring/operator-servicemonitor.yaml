@@ -1,0 +1,40 @@
+# OPTIONAL — only apply if you run the Prometheus Operator (kube-prometheus-stack)
+# instead of the raw Prometheus in prometheus.yaml. These CRDs (ServiceMonitor,
+# PrometheusRule) do not exist on a vanilla cluster and `kubectl apply` will fail
+# without the operator installed. Included to show the operator-native pattern.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: movieverse-backend
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames: ["movieverse"]
+  selector:
+    matchLabels:
+      app: movieverse-backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: movieverse-rules
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: movieverse
+      rules:
+        - alert: BackendTargetDown
+          expr: up{app="movieverse-backend"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "movieverse-backend target down"

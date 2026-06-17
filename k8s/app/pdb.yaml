@@ -1,0 +1,23 @@
+# Keep at least one backend pod available during voluntary disruptions
+# (node drains, rollouts).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: movieverse-backend
+  namespace: movieverse
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: movieverse-backend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: movieverse-frontend
+  namespace: movieverse
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: movieverse-frontend

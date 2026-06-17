@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Full application stack (excludes cluster-infra: monitoring/logging/vault/argocd,
+# and the Calico-only network-policies which are applied separately).
+resources:
+  - ../../namespaces/namespaces.yaml
+  - ../../namespaces/resource-quota.yaml
+  - ../../namespaces/limit-range.yaml
+  - ../../rbac/rbac.yaml
+  - ../../scheduling/priorityclasses.yaml
+  - ../../app/config.yaml
+  - ../../app/secrets.yaml
+  - ../../database/postgres.yaml
+  - ../../database/backup-cronjob.yaml
+  - ../../app/migration-job.yaml
+  - ../../app/backend.yaml
+  - ../../app/frontend.yaml
+  - ../../app/hpa.yaml
+  - ../../app/pdb.yaml
+  - ../../ingress/ingress.yaml
+
+# Labels added to metadata only (not selectors) to avoid mutating immutable
+# selectors / job templates.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: movieverse
+    includeSelectors: false
+
+images:
+  - name: movieverse-backend
+    newName: movieverse-backend
+    newTag: latest
+  - name: movieverse-frontend
+    newName: movieverse-frontend
+    newTag: latest

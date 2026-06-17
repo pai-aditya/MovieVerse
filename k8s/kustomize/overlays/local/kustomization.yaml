@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Local laptop hosting via colima + kind. The app is reached at
+# http://localhost:8080 through a port-forward to the ingress controller, so:
+#   - the Ingress is made host-less (matches Host: localhost:8080)
+#   - CLIENT_URL/SERVER_URL point at localhost:8080 (same-origin -> cookies work)
+#   - build the frontend image with VITE_SERVER_URL=http://localhost:8080/api
+resources:
+  - ../../base
+
+labels:
+  - pairs:
+      environment: local
+    includeSelectors: false
+
+replicas:
+  - name: movieverse-backend
+    count: 1
+  - name: movieverse-frontend
+    count: 1
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: backend-config
+    patch: |-
+      - op: replace
+        path: /data/CLIENT_URL
+        value: http://localhost:8080
+      - op: replace
+        path: /data/SERVER_URL
+        value: http://localhost:8080/api
+  - target:
+      kind: Ingress
+      name: movieverse
+    patch: |-
+      - op: remove
+        path: /spec/rules/0/host
