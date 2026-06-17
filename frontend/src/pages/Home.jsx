@@ -64,8 +64,8 @@ const Home = () => {
       const fetchDataWithSearchQuery = async () => {
       try {
         const moviesData = await FetchMoviesDataWithSearchQuery();
-        setMovies(moviesData.results);
-        setTotalPages(moviesData.total_pages);
+        setMovies(moviesData?.results || []);
+        setTotalPages(moviesData?.total_pages || 1);
         setLoading(false);
       }
       catch (error) {
@@ -79,8 +79,8 @@ const Home = () => {
       const fetchData = async () => {
         try {
             const moviesData = await FetchMoviesData();
-            setMovies(moviesData.results);
-            setTotalPages(moviesData.total_pages);
+            setMovies(moviesData?.results || []);
+            setTotalPages(moviesData?.total_pages || 1);
             setLoading(false);
         }
         catch (error) {

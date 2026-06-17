@@ -9,7 +9,7 @@ import MovieSingleCard from './MovieSingleCard';
 const MoviesCard = ({ movies }) => {
   return (
     <div className='grid xs:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4'>
-      {movies.map((item) => (
+      {(movies || []).map((item) => (
         <MovieSingleCard key={item.id} movie={item} />
       ))}
     </div>

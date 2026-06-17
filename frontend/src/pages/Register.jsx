@@ -67,7 +67,7 @@ const Register = () => {
           </div>
           <img
             className="text-4xl font-bold text-center py-4 text-white"
-            src="../../logo.svg"
+            src="/logo.svg"
           />
           {/* DisplayName Username and password fields */}
           <div className="flex flex-col mb-4">
