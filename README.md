@@ -1,89 +1,106 @@
 # MovieVerse
-Welcome to MovieVerse, an innovative full-stack application that revolutionizes the way users interact with movies. Dive into an immersive movie browsing experience powered by The Movie DB's public APIs.
 
-## Features
+MovieVerse is a full-stack movie discovery and social platform — browse movies
+(via The Movie DB API), write reviews, keep a watchlist, and build custom lists.
 
-* **Movie Details:** Access comprehensive movie details including synopses, cast information, runtime, and directorial insights directly from the intuitive user interface.
+But the application is deliberately ordinary. **The point of this repository is the
+DevOps / Kubernetes platform around it.** MovieVerse is a portfolio project that
+takes a normal three-tier web app and runs it the way a real team would: a real
+multi-node Kubernetes cluster bootstrapped by hand with `kubeadm`, container
+images, persistent storage, monitoring, logging, secrets management, GitOps, and
+CI — all self-hosted, open-source, and zero-cost.
 
-* **Authentication:** Seamless Google OAuth integration via Passport.js ensures secure and hassle-free user login with their google account.
+> **New here? Read [`docs/`](docs/) in this order:**
+> 1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the whole thing fits together
+> 2. [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — bring it up from scratch
+> 3. [docs/OPERATIONS.md](docs/OPERATIONS.md) — run it day-to-day + troubleshoot
+> 4. [docs/DECISIONS.md](docs/DECISIONS.md) — *why* it's built this way (the full story)
+> 5. [docs/CKA-MAPPING.md](docs/CKA-MAPPING.md) — how it maps to the CKA exam
 
-* **Review System:** Write and view detailed movie reviews, creating a vibrant community within the platform.
+---
 
-* **Watchlist:** Effortlessly track movies you intend to watch, maintaining a curated list for easy reference.
+## What's in the box
 
-* **Custom Lists:** Create personalized lists to categorize and organize favorite movies based on preferences.
+| Tier | Technology | Where |
+|------|-----------|-------|
+| Frontend | React 18 + Vite + Tailwind, served by nginx | [`frontend/`](frontend/) ([README](frontend/README.md)) |
+| Backend | Node.js + Express, Passport auth, Prometheus metrics | [`backend/`](backend/) ([README](backend/README.md)) |
+| Database | PostgreSQL (relational schema, sessions table) | [`backend/db/schema.sql`](backend/db/schema.sql) |
+| Containers | Multi-stage Dockerfiles (backend + frontend) | `*/Dockerfile` |
+| Cluster | **kubeadm** — 4 lima VMs (1 control-plane + 3 workers) | [`kubeadm/`](kubeadm/) ([README](kubeadm/README.md)) |
+| Workloads | Deployments, StatefulSet, Job/CronJob, DaemonSet, HPA, PDB | [`k8s/`](k8s/) ([README](k8s/README.md)) |
+| Config mgmt | Kustomize base + `dev`/`prod`/`local` overlays | [`k8s/kustomize/`](k8s/kustomize/) |
+| Monitoring | Prometheus + Grafana | [`k8s/monitoring/`](k8s/monitoring/) |
+| Logging | Loki + Promtail (DaemonSet) | [`k8s/logging/`](k8s/logging/) |
+| Secrets | HashiCorp Vault (dev) | [`k8s/vault/`](k8s/vault/) |
+| GitOps | ArgoCD Application | [`k8s/argocd/`](k8s/argocd/) |
+| CI | GitHub Actions: image build + Trivy scan; kubeconform validation | [`.github/workflows/`](.github/workflows/) |
 
-* **Data Management:** Users have complete control over their data, with the ability to modify, delete, or enhance their content within MovieVerse.
+Everything is **open-source and runs locally** — no cloud account, no paid
+services. (An earlier exploration of AWS EKS was dropped on cost grounds; see
+[docs/DECISIONS.md](docs/DECISIONS.md).)
 
-## [Demo Video](https://drive.google.com/drive/folders/1wb9zmC1krbIloWP-VyzXGDzafHVyW9g6)
-
-## Tech Stack
-
-* **Frontend:** React with Tailwind CSS
-* **Backend:** Node.js with Express
-* **Database:** PostgreSQL
-* **Deployment:** Kubernetes — a real multi-node **kubeadm** cluster (lima VMs) with Prometheus/Grafana, Loki, ArgoCD, Kustomize. See [`kubeadm/README.md`](kubeadm/README.md) (cluster) and [`k8s/README.md`](k8s/README.md) (manifests)
-
-## Getting Started
-
-Clone the repository
-`git clone https://github.com/pai-aditya/MovieVerse.git`
-
-### Update .env file
-
-
-This project utilizes an .env file to manage environment-specific configuration settings. Copy `.env.example` to `backend/.env` and set the following variables:
-
-- `DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME:` PostgreSQL connection details (or set a single `DATABASE_URL`). The schema is created automatically on first boot (and by `npm run migrate`).
-
-- `SESSION_SECRET:` Secret used to sign session cookies. Sessions are stored in PostgreSQL so the backend can run as multiple replicas.
-
-- `CLIENT_ID and CLIENT_SECRET:` Optional Google OAuth credentials. Leave blank to use username/password auth only. To get a Google ClientID, go to the [credential Page](https://console.cloud.google.com/apis/credentials) (if you are new, [create a new project first](https://console.cloud.google.com/projectcreate)).
-
-
-- `CLIENT_URL:` The URL where the frontend of MovieVerse is hosted. (e.g., http://localhost:5173)
-
-- `SERVER_URL:` The URL where the backend server of MovieVerse is hosted. (e.g., http://localhost:5555)
-
-**Server side**
-
-Requires a running PostgreSQL instance matching your `backend/.env` (the schema is created automatically on startup).
+## Architecture at a glance
 
 ```
-cd backend
+                         ┌──────────────────── kubeadm cluster (4 lima VMs) ───────────────────┐
+                         │                                                                      │
+ Browser ─ localhost:8080 ─► edge-proxy (nginx) ─► Service ─► movieverse-frontend (nginx SPA)   │
+   (kubectl port-forward)  │                  └─► /api ─► movieverse-backend (Express, x2)       │
+                         │                                       │ envFrom ConfigMap + Secret    │
+                         │                                       ▼                               │
+                         │                          postgres (StatefulSet, PVC) ◄── tainted node │
+                         │   metrics:  Prometheus ─ scrapes /metrics ─► Grafana                  │
+                         │   logs:     Promtail (DaemonSet) ─► Loki ─► Grafana                   │
+                         │   secrets:  Vault (dev)      gitops: ArgoCD ─ syncs ─ Git             │
+                         └──────────────────────────────────────────────────────────────────────┘
+   nodes: mv-cp (control-plane) · mv-w1, mv-w2 (tier=general) · mv-w3 (tier=database, tainted)
 ```
 
-```
-npm i
+Full detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Quick start (TL;DR)
+
+Prereqs: macOS with [`colima`](https://github.com/abiosoft/colima),
+[`lima`](https://lima-vm.io/), `kubectl`, and `docker` (colima provides the
+engine). On a TLS-intercepting corporate network you also need a CA bundle at
+`~/.movieverse-ca/corp-ca.pem` — see [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+```bash
+colima start --runtime docker          # Docker engine used only to build images
+./kubeadm/cluster-up.sh                # provision VMs, kubeadm init, CNI, join, label/taint
+./kubeadm/load-images.sh               # build app images + import into each worker's containerd
+./kubeadm/deploy.sh                    # storage + app + edge-proxy
+export KUBECONFIG=$HOME/.kube/kubeadm-mv.conf
+kubectl -n movieverse port-forward svc/edge-proxy 8080:80   # browse http://localhost:8080
 ```
 
-```
-npm run dev
-```
+Full walkthrough (including monitoring, logging, Vault, ingress-nginx,
+metrics-server) in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-The server will start running on localhost:5555.
+## Local development (no Kubernetes)
 
-> Prefer Kubernetes? Skip the manual setup and run the whole stack (app + PostgreSQL + monitoring) on a local `kind` cluster — see [`k8s/README.md`](k8s/README.md).
+```bash
+# backend (needs a local PostgreSQL; see backend/README.md)
+cd backend && npm install && npm run dev     # http://localhost:5555
 
-***Client Side***
-
-
-```
-cd frontend
+# frontend
+cd frontend && npm install && npm run dev     # http://localhost:5173
 ```
 
-```
-npm i
-```
+## Repository map
 
 ```
-npm run dev
+backend/        Express API, PostgreSQL data layer, Dockerfile        (see backend/README.md)
+frontend/       React SPA, nginx Dockerfile                           (see frontend/README.md)
+k8s/            All Kubernetes manifests, by topic                    (see k8s/README.md)
+kubeadm/        lima VM template + cluster provisioning scripts       (see kubeadm/README.md)
+docs/           Architecture, deployment, operations, decisions, CKA  (see docs/)
+.github/        CI workflows (image build + manifest validation)
+CLAUDE.md       Guidance for AI assistants working in this repo
 ```
-
-The client will start running on localhost:5173.
 
 ## Author
 
-- Github: [pai-aditya](https://github.com/pai-aditya)
-- Linkedin: [Aditya Pai](https://www.linkedin.com/in/aditya-pai-581b2621a/)
-- Email: [pai.aditya2011@gmail.com](mailto:pai.aditya2011@gmail.com)
+- GitHub: [pai-aditya](https://github.com/pai-aditya)
+- Email: pai.aditya2011@gmail.com
