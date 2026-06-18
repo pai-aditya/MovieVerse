@@ -1,0 +1,111 @@
+// MovieVerse CI — multibranch pipeline.
+// Runs on the host Jenkins (colima docker). For EVERY branch:
+//   test/lint -> build backend+frontend images -> push to ghcr -> poke ArgoCD.
+// Image tag is <branch-slug>-<full-sha>; ArgoCD's ApplicationSet derives the
+// SAME tag from the branch head SHA, so no git write-back is needed.
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+    timeout(time: 30, unit: 'MINUTES')
+  }
+
+  environment {
+    REGISTRY       = 'ghcr.io'
+    OWNER          = 'pai-aditya'                 // lowercase ghcr owner
+    BACKEND_IMAGE  = "${REGISTRY}/${OWNER}/movieverse-backend"
+    FRONTEND_IMAGE = "${REGISTRY}/${OWNER}/movieverse-frontend"
+    // Same-origin relative API path so ONE frontend image works on any node:port.
+    VITE_SERVER_URL = '/api'
+    ARGOCD_SERVER  = 'argocd.local:30443'         // overridden by Jenkins global env if set
+  }
+
+  stages {
+    stage('Setup') {
+      steps {
+        script {
+          // Slug must match the ApplicationSet template: '/' -> '-', lowercased.
+          env.BRANCH_SLUG = env.BRANCH_NAME.toLowerCase().replaceAll('/', '-')
+          env.SHA = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+          env.TAG = "${env.BRANCH_SLUG}-${env.SHA}"
+          env.APP_NAME = "mv-${env.BRANCH_SLUG}".take(53)
+          echo "Building tag: ${env.TAG}"
+        }
+      }
+    }
+
+    stage('Backend test') {
+      steps {
+        dir('backend') {
+          sh 'npm ci'
+          sh 'npm run test --if-present'   // no test script defined yet -> no-op
+        }
+      }
+    }
+
+    stage('Frontend lint') {
+      steps {
+        dir('frontend') {
+          sh 'npm ci'
+          sh 'npm run lint'                // strict: max-warnings 0
+        }
+      }
+    }
+
+    stage('Login to ghcr') {
+      steps {
+        // 'ghcr-pat' = username/password credential (GitHub user + PAT with write:packages)
+        withCredentials([usernamePassword(credentialsId: 'ghcr-pat',
+                          usernameVariable: 'GHCR_USER', passwordVariable: 'GHCR_PAT')]) {
+          sh 'echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin'
+        }
+      }
+    }
+
+    stage('Build & push images') {
+      parallel {
+        stage('backend') {
+          steps {
+            sh '''
+              docker build -t "$BACKEND_IMAGE:$TAG" ./backend
+              docker push "$BACKEND_IMAGE:$TAG"
+            '''
+          }
+        }
+        stage('frontend') {
+          steps {
+            sh '''
+              docker build --build-arg VITE_SERVER_URL="$VITE_SERVER_URL" \
+                -t "$FRONTEND_IMAGE:$TAG" ./frontend
+              docker push "$FRONTEND_IMAGE:$TAG"
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Trigger ArgoCD') {
+      steps {
+        // Best-effort hard refresh so the deploy is instant. If the branch is new,
+        // the ApplicationSet creates the Application on its next reconcile anyway.
+        withCredentials([string(credentialsId: 'argocd-token', variable: 'ARGOCD_TOKEN')]) {
+          sh '''
+            curl -sk -X POST \
+              -H "Authorization: Bearer $ARGOCD_TOKEN" \
+              "https://$ARGOCD_SERVER/api/v1/applications/$APP_NAME?refresh=hard" \
+              || echo "ArgoCD refresh skipped (app not created yet) — appset will reconcile."
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    always  { sh 'docker logout ghcr.io || true' }
+    success { echo "✅ Pushed ${env.BACKEND_IMAGE}:${env.TAG} — ArgoCD will deploy ${env.APP_NAME}" }
+    failure { echo "❌ Build failed for ${env.BRANCH_NAME}" }
+  }
+}

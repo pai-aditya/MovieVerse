@@ -1,0 +1,21 @@
+# Pin argocd-server to a FIXED NodePort so the UI/API is always reachable at
+# https://<any-node-ip>:30443 (and the Jenkins refresh step has a stable target).
+# Apply after installing ArgoCD:  kubectl apply -f cicd/argocd/server-nodeport.yaml
+# (argocd-server is typically run with --insecure behind this; see cicd/README.md.)
+apiVersion: v1
+kind: Service
+metadata:
+  name: argocd-server
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/part-of: argocd
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: argocd-server
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8080
+      nodePort: 30443

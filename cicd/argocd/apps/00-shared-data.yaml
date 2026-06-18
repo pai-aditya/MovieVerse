@@ -1,0 +1,24 @@
+# Shared data-plane: the single Postgres (in the 'movieverse' namespace, pinned to
+# the tainted database node) that ALL per-branch previews connect to, plus the
+# cluster-scoped PriorityClasses and the nightly backup CronJob.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: movieverse-shared-data
+  namespace: argocd
+spec:
+  project: movieverse
+  source:
+    repoURL: https://github.com/pai-aditya/MovieVerse.git
+    targetRevision: main
+    path: k8s/kustomize/overlays/shared
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: movieverse
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

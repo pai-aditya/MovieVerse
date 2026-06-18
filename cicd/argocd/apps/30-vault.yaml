@@ -1,0 +1,22 @@
+# Secrets demo: HashiCorp Vault (dev mode). Present as a component; the app itself
+# still reads K8s Secrets so the cluster stays bootable if Vault is down.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: movieverse-vault
+  namespace: argocd
+spec:
+  project: movieverse
+  source:
+    repoURL: https://github.com/pai-aditya/MovieVerse.git
+    targetRevision: main
+    path: k8s/vault
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

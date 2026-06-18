@@ -1,0 +1,30 @@
+# Root "app of apps": the single Application you apply by hand. It syncs the
+# cicd/argocd/apps directory, which contains the platform Applications and the
+# per-branch preview ApplicationSet. From here everything else is GitOps-managed.
+#
+#   kubectl apply -f cicd/argocd/appproject.yaml
+#   kubectl apply -f cicd/argocd/app-of-apps.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: movieverse-root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: movieverse
+  source:
+    repoURL: https://github.com/pai-aditya/MovieVerse.git
+    targetRevision: main
+    path: cicd/argocd/apps
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Trimmed per-branch preview stack: frontend + backend + a NodePort edge-proxy,
+# wired to the SHARED Postgres (see postgres-externalname.yaml). The ArgoCD
+# ApplicationSet injects the namespace, image tags, per-branch DB name and the
+# NodePort — so nothing here is branch-specific.
+#
+# Build needs --load-restrictor LoadRestrictionsNone (references sibling dirs).
+resources:
+  - serviceaccount.yaml             # SA the backend pods run as
+  - ../../../app/config.yaml        # backend-config (DB_HOST=postgres -> ExternalName)
+  - ../../../app/secrets.yaml       # db-credentials (+ app-secrets); POSTGRES_DB patched per branch
+  - ../../../app/backend.yaml       # Deployment + Service
+  - ../../../app/frontend.yaml      # Deployment + Service
+  - postgres-externalname.yaml      # 'postgres' -> postgres.movieverse.svc (shared)
+  - edge-proxy.yaml                 # NodePort entrypoint (/ -> frontend, /api -> backend)
+  - db-ensure-job.yaml              # create mv_<slug> if absent, then migrate
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: movieverse
+      movieverse.io/env: preview
+    includeSelectors: false
+
+# Previews run a single replica of each tier to stay light on the 2 GiB nodes.
+replicas:
+  - name: movieverse-backend
+    count: 1
+  - name: movieverse-frontend
+    count: 1
+
+# Image names are left as the short 'movieverse-backend' / 'movieverse-frontend'
+# on purpose: the ApplicationSet is the single place that rewrites them to the
+# per-branch ghcr tag (ghcr.io/pai-aditya/...:<slug>-<sha>). A plain
+# `kustomize build` of this overlay therefore renders the placeholder :latest.

@@ -1,0 +1,21 @@
+# Logs: Loki + Promtail (DaemonSet).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: movieverse-logging
+  namespace: argocd
+spec:
+  project: movieverse
+  source:
+    repoURL: https://github.com/pai-aditya/MovieVerse.git
+    targetRevision: main
+    path: k8s/logging
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: logging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

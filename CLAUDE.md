@@ -11,6 +11,7 @@ MovieVerse is a full-stack movie discovery and social platform. Users can browse
 - **Frontend:** React 18 + Vite + Tailwind CSS, running on port 5173
 - **Database:** PostgreSQL (via the `pg` driver)
 - **Deployment:** Kubernetes — multi-node **kubeadm** cluster (lima VMs on macOS) with Prometheus/Grafana, Loki/Promtail, ArgoCD, and Kustomize. See `kubeadm/README.md` (cluster) and `k8s/README.md` (manifests).
+- **CI/CD:** self-hosted **Jenkins** (host/colima) builds + pushes images to **ghcr.io** on every branch push; **ArgoCD** (app-of-apps + an `ApplicationSet`) deploys each branch to its own `mv-<slug>` namespace on its own NodePort, against a shared Postgres. See `cicd/README.md`.
 
 ## Architecture
 
@@ -140,4 +141,5 @@ The cluster is a real **kubeadm** cluster on macOS (4 lima VMs: 1 control-plane 
 - **Add a new API endpoint:** Add a route handler in `backend/index.js` using the `query()` helper and a mapper for the response shape.
 - **Change the schema:** Edit `backend/db/schema.sql`; it's applied idempotently on startup.
 - **Add frontend page:** Create a file in `frontend/src/pages/`, import/export in `App.jsx`, add a route.
-- **Deploy to Kubernetes:** `kubeadm/cluster-up.sh` → `kubeadm/load-images.sh` → `kubeadm/deploy.sh` (details in `kubeadm/README.md`).
+- **Deploy to Kubernetes (manual):** `kubeadm/cluster-up.sh` → `kubeadm/load-images.sh` → `kubeadm/deploy.sh` (details in `kubeadm/README.md`).
+- **Deploy via CI/CD (automated):** push to any branch → Jenkins builds/pushes to ghcr → ArgoCD's `ApplicationSet` deploys a per-branch preview env. Bootstrap once with `cicd/argocd/app-of-apps.yaml` and `cicd/jenkins/jenkins-up.sh` (full runbook in `cicd/README.md`).

@@ -1,0 +1,13 @@
+# Pinned plugin set installed at image-build time (jenkins-plugin-cli).
+configuration-as-code
+job-dsl
+workflow-aggregator
+pipeline-stage-view
+git
+github
+github-branch-source
+docker-workflow
+credentials-binding
+basic-branch-build-strategies
+timestamper
+ws-cleanup

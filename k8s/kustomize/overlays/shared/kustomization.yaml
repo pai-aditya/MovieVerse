@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Shared data-plane (deployed once, by the ArgoCD 'movieverse-shared-data' app).
+# The single Postgres every per-branch preview connects to, its credentials, the
+# nightly backup, and the cluster-scoped PriorityClasses the app pods reference.
+# Build needs --load-restrictor LoadRestrictionsNone (references sibling dirs).
+resources:
+  - ../../../namespaces/namespaces.yaml
+  - ../../../scheduling/priorityclasses.yaml
+  - ../../../app/secrets.yaml
+  - ../../../database/postgres.yaml
+  - ../../../database/backup-cronjob.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: movieverse
+    includeSelectors: false

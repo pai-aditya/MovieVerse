@@ -1,0 +1,15 @@
+# Makes the name 'postgres' resolve, inside the preview namespace, to the single
+# shared Postgres in the 'movieverse' namespace. Lets every existing reference
+# (backend DB_HOST, the wait-for-postgres init, the db-ensure job) stay unchanged
+# while all previews share one database server.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: movieverse # re-namespaced to mv-<slug> by the ApplicationSet
+spec:
+  type: ExternalName
+  externalName: postgres.movieverse.svc.cluster.local
+  ports:
+    - name: postgres
+      port: 5432

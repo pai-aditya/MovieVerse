@@ -1,0 +1,74 @@
+# PreSync hook: ensure this branch's database exists on the shared Postgres, then
+# run the schema migration. POSTGRES_DB is patched per-branch (mv_<slug>) by the
+# ApplicationSet, so each preview gets an isolated database on one shared server.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-ensure
+  namespace: movieverse # re-namespaced to mv-<slug>
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 5
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: db-ensure
+    spec:
+      restartPolicy: Never
+      serviceAccountName: movieverse-backend
+      initContainers:
+        # Wait for the shared Postgres, then CREATE DATABASE mv_<slug> if missing.
+        - name: create-database
+          image: postgres:16-alpine
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              until pg_isready -h postgres -U "$POSTGRES_USER"; do
+                echo "waiting for postgres"; sleep 2
+              done
+              if ! psql -h postgres -U "$POSTGRES_USER" -d postgres -tAc \
+                   "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1; then
+                echo "creating database $POSTGRES_DB"
+                createdb -h postgres -U "$POSTGRES_USER" "$POSTGRES_DB"
+              else
+                echo "database $POSTGRES_DB already exists"
+              fi
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: POSTGRES_PASSWORD }
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: POSTGRES_USER }
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: POSTGRES_DB }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+      containers:
+        # Apply the schema to mv_<slug> using the branch's backend image.
+        - name: migrate
+          image: movieverse-backend:latest # name+tag rewritten by the ApplicationSet
+          command: ["node", "migrate.js"]
+          envFrom:
+            - configMapRef:
+                name: backend-config
+          env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: POSTGRES_USER }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: POSTGRES_PASSWORD }
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef: { name: db-credentials, key: POSTGRES_DB }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 250m, memory: 256Mi }

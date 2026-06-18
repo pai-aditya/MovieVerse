@@ -1,0 +1,78 @@
+# Per-branch entrypoint: a NodePort nginx that serves the SPA and proxies /api to
+# the backend (same-origin, so session cookies work). The ApplicationSet sets the
+# concrete nodePort per branch; here it defaults to letting Kubernetes pick one.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-proxy-config
+  namespace: movieverse # re-namespaced to mv-<slug>
+data:
+  default.conf: |
+    server {
+      listen 80;
+      server_name _;
+      location /api/ {
+        proxy_pass http://movieverse-backend:5555/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+      location / {
+        proxy_pass http://movieverse-frontend:80/;
+        proxy_set_header Host $host;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-proxy
+  namespace: movieverse # re-namespaced to mv-<slug>
+  labels:
+    app: edge-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: edge-proxy
+  template:
+    metadata:
+      labels:
+        app: edge-proxy
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/conf.d
+      volumes:
+        - name: config
+          configMap:
+            name: edge-proxy-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-proxy
+  namespace: movieverse # re-namespaced to mv-<slug>
+  labels:
+    app: edge-proxy
+spec:
+  type: NodePort
+  selector:
+    app: edge-proxy
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      # nodePort is set per-branch by the ApplicationSet (30000 + hash(branch)%2000).

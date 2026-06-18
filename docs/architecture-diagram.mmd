@@ -1,0 +1,270 @@
+%%{init: {"theme": "base", "themeVariables": {"fontSize": "14px"}}}%%
+graph TB
+    %% ── External ──────────────────────────────────────────────────────────
+    Browser(["👤 User / Browser"])
+    GitHub[("GitHub
+pai-aditya/MovieVerse")]
+    TMDB["The Movie DB API"]
+    GoogleOAuth["Google OAuth 2.0"]
+    GHCR[("ghcr.io
+movieverse-backend / -frontend
+:&lt;branch-slug&gt;-&lt;sha&gt;")]
+
+    %% ── macOS Host ────────────────────────────────────────────────────────
+    subgraph macOS["macOS Host  (Apple Silicon / arm64)"]
+        Colima["Colima
+docker build → docker save
+(manual bootstrap loader)"]
+        Jenkins["Jenkins  (colima)
+fixed :8080
+multibranch: test → build →
+push ghcr → refresh ArgoCD"]
+        kubectl["kubectl port-forward
+svc/edge-proxy 8080:80
+(local access)"]
+
+        subgraph Lima["Lima VMs — user-v2 network  (Flannel CNI, k8s v1.31)"]
+
+            subgraph CP["mv-cp  ·  control-plane  ·  2 CPU / 2 GiB"]
+                ETCD["etcd"]
+                APIServer["kube-apiserver"]
+                Scheduler["kube-scheduler"]
+                CCM["kube-controller-mgr"]
+            end
+
+            subgraph W1["mv-w1  ·  general worker  ·  tier=general"]
+                W1label[" "]
+            end
+
+            subgraph W2["mv-w2  ·  general worker  ·  tier=general"]
+                W2label[" "]
+            end
+
+            subgraph DBNode["mv-db  ·  database worker  ·  tier=database
+taint: dedicated=database:NoSchedule"]
+                DBNodeLabel[" "]
+            end
+        end
+    end
+
+    %% ── namespace: movieverse ─────────────────────────────────────────────
+    subgraph NS_MV["namespace: movieverse"]
+        EdgeProxy["edge-proxy  (nginx)
+1 replica · ClusterIP :80
+/      → frontend
+/api/* → backend (strip prefix)"]
+
+        subgraph FE["movieverse-frontend"]
+            FEDeploy["Deployment
+2 replicas
+nginx serves React SPA
+ClusterIP :80"]
+        end
+
+        subgraph BE["movieverse-backend"]
+            BEDeploy["Deployment
+3 replicas  (HPA: 2–8)
+Node.js / Express :5555
+ClusterIP :5555
+/metrics → prom-client
+/health  → liveness
+/ready   → readiness (DB check)"]
+            InitC["initContainer:
+wait-for-postgres"]
+        end
+
+        subgraph PG["postgres"]
+            PGSts["StatefulSet · 1 replica
+postgres:16-alpine :5432
+Headless Service
+scheduled on mv-db only
+(toleration + nodeAffinity)"]
+            PGPVC[("PVC 1 Gi
+storageClass: standard
+(local-path-provisioner)")]
+        end
+
+        MigJob["migration-job
+(one-shot Job on deploy)
+npm run migrate"]
+        BackupCJ["backup-cronjob
+pg_dump daily @ 02:00
+7-day retention"]
+        BackupPVC[("backup PVC  1 Gi")]
+
+        ConfigMap["ConfigMap: backend-config
+(DB_HOST, PORT, URLs …)"]
+        Secrets["Secrets
+db-credentials
+app-secrets
+(SESSION_SECRET, OAuth keys)"]
+    end
+
+    %% ── namespace: monitoring ─────────────────────────────────────────────
+    subgraph NS_MON["namespace: monitoring"]
+        Prom["Prometheus  v2.54
+1 replica · ClusterIP :9090
+7-day TSDB retention
+pod-SD + cAdvisor scrape
+alerts: TargetDown · 5xx · p95"]
+        Graf["Grafana  v11.2
+1 replica · ClusterIP :3000
+datasources: Prometheus + Loki
+dashboard: MovieVerse Overview"]
+    end
+
+    %% ── namespace: logging ────────────────────────────────────────────────
+    subgraph NS_LOG["namespace: logging"]
+        Loki["Loki  v2.9
+1 replica · ClusterIP :3100
+filesystem backend
+168h retention"]
+        Promtail["Promtail  v2.9
+DaemonSet (every node)
+tails /var/log/pods → Loki"]
+    end
+
+    %% ── namespace: argocd ─────────────────────────────────────────────────
+    subgraph NS_CD["namespace: argocd  (fixed :30443)"]
+        ArgoCD["ArgoCD  (app-of-apps)
+syncs platform + previews
+prune + selfHeal"]
+        AppSet["ApplicationSet
+SCM generator (every branch)
+→ one Application per branch
+injects ns / image / db / port"]
+    end
+
+    %% ── per-branch preview env (one per branch) ───────────────────────────
+    subgraph NS_PREVIEW["namespace: mv-&lt;branch-slug&gt;  (per branch)"]
+        PvEdge["edge-proxy
+NodePort 30000+hash(branch)
+/ → frontend · /api → backend"]
+        PvFE["frontend ×1"]
+        PvBE["backend ×1"]
+        PvJob["db-ensure Job
+createdb mv_&lt;slug&gt; → migrate"]
+    end
+
+    %% ── namespace: vault ──────────────────────────────────────────────────
+    subgraph NS_VAULT["namespace: vault"]
+        Vault["HashiCorp Vault  v1.17
+StatefulSet · dev mode
+ClusterIP :8200
+(demo only — app reads K8s Secrets)"]
+    end
+
+    %% ── Storage ───────────────────────────────────────────────────────────
+    subgraph StorageLayer["Cluster Storage"]
+        LPP["local-path-provisioner
+storageClass: standard
+(rancher.io/local-path)"]
+    end
+
+    %% ── Flows ─────────────────────────────────────────────────────────────
+
+    %% User traffic
+    Browser -- "HTTP :8080
+(kubectl port-forward)" --> kubectl
+    kubectl --> EdgeProxy
+    EdgeProxy -- "proxy_pass :80" --> FEDeploy
+    EdgeProxy -- "proxy_pass :5555" --> BEDeploy
+
+    %% Browser calls external APIs directly
+    Browser -. "TMDB movie data
+(fetch from browser)" .-> TMDB
+    BEDeploy -. "Google OAuth callback
+(if CLIENT_ID set)" .-> GoogleOAuth
+
+    %% Backend → DB
+    InitC -- "nc -z :5432" --> PGSts
+    BEDeploy -- "pg pool :5432" --> PGSts
+    MigJob -- "schema migration" --> PGSts
+    BackupCJ -- "pg_dump" --> PGSts
+    BackupCJ --> BackupPVC
+
+    %% Config injection
+    ConfigMap --> BEDeploy
+    Secrets --> BEDeploy
+    Secrets --> PGSts
+    Secrets --> BackupCJ
+
+    %% Storage provisioning
+    LPP -- "provisions" --> PGPVC
+    LPP -- "provisions" --> BackupPVC
+    PGPVC --> PGSts
+
+    %% Metrics
+    Prom -- "pod-SD scrape
+/metrics :5555" --> BEDeploy
+    Prom -- "cAdvisor
+(kubelet API)" --> CP
+    Graf -- "query" --> Prom
+    Graf -- "query" --> Loki
+
+    %% Logs
+    Promtail -- "push logs
+:3100" --> Loki
+
+    %% CI: push → Jenkins → ghcr
+    GitHub -- "push (any branch)
+webhook / 2-min scan" --> Jenkins
+    Jenkins -- "docker build + push
+:&lt;slug&gt;-&lt;sha&gt;" --> GHCR
+    Jenkins -. "hard refresh (best-effort)" .-> ArgoCD
+
+    %% CD: ArgoCD app-of-apps + per-branch ApplicationSet
+    GitHub -- "SCM generator
+polls branch heads" --> AppSet
+    ArgoCD -- "owns / reconciles" --> AppSet
+    AppSet -- "one Application per branch
+ns/image/db/port injected" --> NS_PREVIEW
+    ArgoCD -- "platform app-of-apps
+(prune + selfHeal)" --> NS_MON
+    ArgoCD -- "platform app-of-apps" --> NS_LOG
+    ArgoCD -- "platform app-of-apps" --> NS_VAULT
+    ArgoCD -- "shared data-plane" --> PGSts
+
+    %% Preview env wiring
+    GHCR -- "image pull" --> PvFE
+    GHCR -- "image pull" --> PvBE
+    PvEdge --> PvFE
+    PvEdge --> PvBE
+    PvBE -- "cross-ns :5432
+(ExternalName → shared)" --> PGSts
+    PvJob -- "createdb + migrate" --> PGSts
+    Browser -- "HTTP NodePort
+&lt;node-ip&gt;:30000+hash" --> PvEdge
+
+    %% Image loading (manual bootstrap only — superseded by ghcr in CI/CD)
+    Colima -. "docker save | ctr import
+(manual bootstrap)" .-> W1
+    Colima -. "docker save | ctr import" .-> W2
+    Colima -. "docker save | ctr import" .-> DBNode
+
+    %% Node placement annotations
+    FEDeploy -. "scheduled on
+mv-w1 / mv-w2
+(topologySpread)" .-> W1
+    FEDeploy -. "scheduled on
+mv-w1 / mv-w2" .-> W2
+    BEDeploy -. "scheduled on
+mv-w1 / mv-w2
+(topologySpread + antiAffinity)" .-> W1
+    BEDeploy -. "scheduled on
+mv-w1 / mv-w2" .-> W2
+    PGSts -. "pinned to mv-db
+(toleration + nodeAffinity)" .-> DBNode
+
+    %% Styling
+    classDef ns fill:#e8f4f8,stroke:#4a9eca,stroke-width:2px
+    classDef ext fill:#fff3cd,stroke:#f0a500,stroke-width:2px
+    classDef storage fill:#d4edda,stroke:#28a745,stroke-width:2px
+    classDef infra fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+    classDef node fill:#e2e3e5,stroke:#6c757d,stroke-width:1px,stroke-dasharray:4 2
+
+    class NS_MV,NS_MON,NS_LOG,NS_CD,NS_VAULT,NS_PREVIEW ns
+    class Browser,TMDB,GoogleOAuth,GitHub,GHCR ext
+    class PGPVC,BackupPVC,LPP storage
+    class ETCD,APIServer,Scheduler,CCM infra
+    class W1label,W2label,DBNodeLabel node

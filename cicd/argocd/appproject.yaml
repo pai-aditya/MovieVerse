@@ -1,0 +1,21 @@
+# AppProject scoping what the MovieVerse GitOps apps may deploy.
+# Allows the shared 'movieverse' namespace, all per-branch 'mv-*' preview
+# namespaces, and the platform namespaces (monitoring/logging/vault).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: movieverse
+  namespace: argocd
+spec:
+  description: MovieVerse — app, per-branch previews, and platform add-ons
+  sourceRepos:
+    - "https://github.com/pai-aditya/MovieVerse.git"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

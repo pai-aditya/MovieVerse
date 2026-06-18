@@ -181,12 +181,15 @@ kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8081:80   # h
 # Vault (secrets-management demo, dev mode)
 kubectl apply -f k8s/vault/vault-dev.yaml
 
-# GitOps with ArgoCD
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-kubectl -n argocd patch cm argocd-cm --type merge \
-  -p '{"data":{"kustomize.buildOptions":"--load-restrictor LoadRestrictionsNone"}}'
-kubectl apply -f k8s/argocd/application.yaml         # set repoURL to your fork first
+# GitOps with ArgoCD + Jenkins CI — see the full runbook in cicd/README.md.
+# (ArgoCD is installed via Helm to avoid the DNS-blocked raw.githubusercontent.com,
+#  then the app-of-apps + per-branch ApplicationSet take over.)
+helm repo add argo https://argoproj.github.io/argo-helm
+helm install argocd argo/argo-cd -n argocd --create-namespace \
+  --set 'configs.cm.kustomize\.buildOptions=--load-restrictor LoadRestrictionsNone'
+kubectl apply -f cicd/argocd/server-nodeport.yaml    # UI on https://<node-ip>:30443
+kubectl apply -f cicd/argocd/appproject.yaml
+kubectl apply -f cicd/argocd/app-of-apps.yaml        # platform apps + preview ApplicationSet
 ```
 
 > `raw.githubusercontent.com` is sometimes DNS-blocked on the corp network; if a
