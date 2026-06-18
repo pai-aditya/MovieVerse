@@ -2,16 +2,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { MdOutlineDelete } from 'react-icons/md';
 import { SERVER_URL } from '../components/Constants';
-import PopupModal from '../components/PopupModal';
 
 const ListSingleCard = ({ list,deleteIcon,userID }) => {
 
   const colors = ['bg-blue-800', 'bg-purple-800', 'bg-gray-800', 'bg-green-500', 'bg-yellow-800', 'bg-pink-800','bg-red-800','bg-indigo-800','bg-orange-800','bg-teal-800','bg-cyan-800','bg-amber-800','bg-cyan-600','bg-lime-500','bg-violet-800','bg-fuchsia-700','bg-rose-700'
   ];
-  const [loading,setLoading] = useState(false);    
+  const [, setLoading] = useState(false);
   const navigateTo = useNavigate();
-  const linkToGo = deleteIcon ? `viewlist/${list._id}` : `viewlist/specific/${list._id}`; 
-  const [showDeletePopup,setShowDeletePopup] = useState(false);
   const getRandomColor = () => {
     return colors[Math.floor(Math.random() * colors.length)];
   };

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import BackButton from '../components/BackButton';
 import Spinner from '../components/Spinner';
-import {useNavigate, useParams } from 'react-router-dom';
+import {useNavigate } from 'react-router-dom';
 import { SERVER_URL } from '../components/Constants';
 import TitleCard from '../components/TitleCard';
 const ListCreate = (userDetails) => {
@@ -9,10 +9,6 @@ const ListCreate = (userDetails) => {
   const [listName,setListName] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigateTo = useNavigate();
-
-  const [movieTitle,setMovieTitle] = useState('');
-  const {id} = useParams();
-  const authorName = userDetails.user.user.displayName;
 
 
 

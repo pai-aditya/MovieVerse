@@ -1,7 +1,6 @@
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useCallback,useState,useEffect } from 'react';
 import { SERVER_URL } from '../components/Constants';
-import TitleCard from '../components/TitleCard';
 import ListSingleCard from './ListSingleCard';
 import Spinner from '../components/Spinner';
 import BackButton from '../components/BackButton';

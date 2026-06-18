@@ -1,11 +1,11 @@
-import { useState,useEffect } from 'react';
+import { useState } from 'react';
 import { AiOutlineClose } from 'react-icons/ai';
 import { SERVER_URL } from './Constants';
 import { useNavigate } from 'react-router-dom';
 const PopupModal = ({ title, contentMessage, buttonMessage, id, onClose }) => {
 
     const navigateTo = useNavigate();
-    const [loading,setLoading] = useState(false);
+    const [, setLoading] = useState(false);
 
     const handleDeleteReview = async () => {
         setLoading(true);

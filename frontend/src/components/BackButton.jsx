@@ -1,6 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { BsArrowLeft } from 'react-icons/bs';
-import { ArrowLeft ,ChevronLeft} from 'lucide-react';
+import { ChevronLeft} from 'lucide-react';
 const BackButton = () => {
 
   let navigateTo = useNavigate();

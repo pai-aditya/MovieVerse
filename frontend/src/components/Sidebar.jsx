@@ -1,4 +1,4 @@
-import { MoreVertical, ChevronLast, ChevronFirst, ArrowBigLeft,ArrowBigRight } from "lucide-react"
+import { ArrowBigLeft,ArrowBigRight } from "lucide-react"
 import { createContext, useState } from "react"
 
 export const SidebarContext = createContext();
