@@ -19,7 +19,9 @@ spec:
         app: db-ensure
     spec:
       restartPolicy: Never
-      serviceAccountName: movieverse-backend
+      # Uses the namespace 'default' SA (auto-created). NOT movieverse-backend:
+      # that SA is a Sync-phase resource created only AFTER PreSync hooks finish,
+      # so referencing it here deadlocks the hook. This Job makes no K8s API calls.
       initContainers:
         # Wait for the shared Postgres, then CREATE DATABASE mv_<slug> if missing.
         - name: create-database
