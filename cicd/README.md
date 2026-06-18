@@ -77,7 +77,8 @@ Used by Jenkins to push to ghcr **and** to scan branches.
 ```bash
 helm repo add argo https://argoproj.github.io/argo-helm
 helm install argocd argo/argo-cd -n argocd --create-namespace \
-  --set 'configs.cm.kustomize\.buildOptions=--load-restrictor LoadRestrictionsNone'
+  --set 'configs.cm.kustomize\.buildOptions=--load-restrictor LoadRestrictionsNone' \
+  --set-string 'configs.cm.accounts\.admin=apiKey\, login'
 kubectl apply -f cicd/argocd/server-nodeport.yaml
 # initial admin password:
 kubectl -n argocd get secret argocd-initial-admin-secret \
@@ -86,20 +87,23 @@ kubectl -n argocd get secret argocd-initial-admin-secret \
 
 ### 3. GitHub token Secret for the ApplicationSet (branch discovery)
 ```bash
-kubectl -n argocd create secret generic github-token --from-literal=token=<YOUR_PAT>
+kubectl -n argocd create secret generic github-token --from-literal=token=<YOUR_GITHUB_PAT>
 ```
 
 ### 4. Bootstrap GitOps
 ```bash
 kubectl apply -f cicd/argocd/appproject.yaml
 kubectl apply -f cicd/argocd/app-of-apps.yaml
+
+kubectl -n argocd port-forward svc/argocd-server 30443:443   
+
 ```
 ArgoCD now syncs the platform stacks and starts creating a preview Application per
 branch.
 
 ### 5. ArgoCD API token for Jenkins (optional but gives instant deploys)
 ```bash
-argocd login <node-ip>:30443 --username admin --password <pw> --insecure
+argocd login localhost:30443 --username admin --password <argocd_password> --insecure
 argocd account generate-token --account admin   # paste into ARGOCD_TOKEN below
 ```
 Without it, deploys still happen on ArgoCD's next poll (≈ a couple minutes).
@@ -107,10 +111,10 @@ Without it, deploys still happen on ArgoCD's next poll (≈ a couple minutes).
 ### 6. Start Jenkins (on the host, fixed port 8080)
 ```bash
 export GHCR_USER=pai-aditya
-export GHCR_PAT=<your-PAT>
-export ARGOCD_TOKEN=<token-from-step-5>      # optional
-export ARGOCD_SERVER=<node-ip>:30443          # reachable from the host
-export ADMIN_PASSWORD=<choose-one>
+export GHCR_PAT=<YOUR_GITHUB_PAT>
+export ARGOCD_TOKEN=<YOUR_ARGOCD_TOKEN>      # from step 5; optional
+export ARGOCD_SERVER=localhost:30443
+export ADMIN_PASSWORD=admin
 ./cicd/jenkins/jenkins-up.sh
 ```
 

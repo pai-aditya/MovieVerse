@@ -21,18 +21,17 @@ metadata:
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
+  # ArgoCD's GitHub SCM provider generator is org-only (it calls
+  # /orgs/{org}/repos), which 404s for the personal account `pai-aditya`.
+  # So we enumerate branches explicitly with a List generator. Each entry must
+  # carry the branch head SHA that Jenkins built (the ghcr image tag is
+  # <slug>-<sha>). Add an element per branch you want a preview for, and bump
+  # `sha` after a new push (or switch to a mutable branch tag — see cicd/README).
   generators:
-    - scmProvider:
-        github:
-          organization: pai-aditya
-          allBranches: true
-          # Token for the GitHub API (branch listing). See cicd/README.md.
-          tokenRef:
-            secretName: github-token
-            key: token
-        cloneProtocol: https
-        filters:
-          - branchMatch: ".*"
+    - list:
+        elements:
+          - branch: main
+            sha: 7560d3e7b2cea51d27204bde316a73dfe3a24c37
   template:
     metadata:
       name: 'mv-{{ .branch | replace "/" "-" | lower | trunc 40 | trimSuffix "-" }}'
