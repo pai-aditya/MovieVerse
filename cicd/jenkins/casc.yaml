@@ -55,10 +55,15 @@ jobs:
                 repositoryUrl('https://github.com/pai-aditya/MovieVerse.git')
                 configuredByUrl(false)
                 credentialsId('ghcr-pat')
+                // Job-DSL GitHub sources have NO discovery traits by default,
+                // so without this the scan finds zero branches. strategyId(3)
+                // = discover ALL branches.
+                traits {
+                  gitHubBranchDiscovery {
+                    strategyId(3)
+                  }
+                }
               }
-            }
-            strategy {
-              allBranchesStrategy {}
             }
           }
         }
