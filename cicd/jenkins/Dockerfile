@@ -1,7 +1,7 @@
 # Jenkins controller image for MovieVerse CI, run on the host via colima docker.
 # Adds the Docker CLI (talks to the mounted host docker socket — "Docker-outside-
 # of-Docker"), Node.js (for npm test/lint), and the CLIs the pipeline shells out to.
-FROM jenkins/jenkins:2.462.3-lts-jdk17
+FROM jenkins/jenkins:lts-jdk17
 
 USER root
 
@@ -17,6 +17,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Import corp CA into the OS trust store AND the Java truststore so that
+# jenkins-plugin-cli (and later pipeline HTTP calls) work behind a TLS-
+# intercepting proxy.  The CA is optional: if the build arg is not set or
+# the file is empty the build still succeeds.
+ARG CORP_CA=
+COPY ${CORP_CA:-.dockerignore} /tmp/corp-ca.pem
+RUN if [ -s /tmp/corp-ca.pem ]; then \
+        cp /tmp/corp-ca.pem /usr/local/share/ca-certificates/corp-ca.crt \
+        && update-ca-certificates \
+        && keytool -importcert -noprompt -trustcacerts \
+            -alias corp-ca \
+            -keystore "$JAVA_HOME/lib/security/cacerts" \
+            -storepass changeit \
+            -file /tmp/corp-ca.pem; \
+    fi && rm -f /tmp/corp-ca.pem
 
 # Skip the setup wizard; configuration comes from JCasC (casc.yaml) + plugins.txt.
 ENV JAVA_OPTS="-Djenkins.install.runSetupWizard=false"

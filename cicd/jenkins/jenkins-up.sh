@@ -22,7 +22,14 @@ export ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin}"
 export ARGOCD_SERVER="${ARGOCD_SERVER:-argocd.local:30443}"
 
 echo "==> Building $IMAGE"
-docker build -t "$IMAGE" "$DIR"
+CORP_CA="${HOME}/.movieverse-ca/corp-ca.pem"
+if [ -f "$CORP_CA" ]; then
+  cp "$CORP_CA" "$DIR/corp-ca.pem"
+  docker build --build-arg CORP_CA=corp-ca.pem -t "$IMAGE" "$DIR"
+  rm -f "$DIR/corp-ca.pem"
+else
+  docker build -t "$IMAGE" "$DIR"
+fi
 
 echo "==> (Re)starting $NAME"
 docker rm -f "$NAME" >/dev/null 2>&1 || true
