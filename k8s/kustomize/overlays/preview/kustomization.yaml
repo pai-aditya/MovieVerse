@@ -23,6 +23,35 @@ labels:
       movieverse.io/env: preview
     includeSelectors: false
 
+# The db-ensure Job is a PreSync hook, but its containers consume db-credentials,
+# backend-config and the 'postgres' ExternalName Service — all normally created in
+# the Sync phase (after PreSync), which deadlocks the hook with
+# "secret/configmap not found". Promote just those three to PreSync hooks on an
+# earlier sync-wave (-1) than the Job (wave 0) so they exist when the hook runs.
+# Scoped to the preview overlay only; base/other overlays are unaffected.
+patches:
+  - target: { kind: Secret, name: db-credentials }
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/hook: PreSync
+          argocd.argoproj.io/sync-wave: "-1"
+  - target: { kind: ConfigMap, name: backend-config }
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/hook: PreSync
+          argocd.argoproj.io/sync-wave: "-1"
+  - target: { kind: Service, name: postgres }
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/hook: PreSync
+          argocd.argoproj.io/sync-wave: "-1"
+
 # Previews run a single replica of each tier to stay light on the 2 GiB nodes.
 replicas:
   - name: movieverse-backend
