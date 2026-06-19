@@ -8,6 +8,7 @@ cheatsheet. Pairs with [DEPLOYMENT.md](DEPLOYMENT.md) (first-time bring-up).
 - [Recovering after host sleep](#recovering-after-host-sleep)
 - [Host access to the cluster](#host-access-to-the-cluster)
 - [Common operations](#common-operations)
+- [CI/CD preview environments](#cicd-preview-environments)
 - [etcd backup & restore](#etcd-backup--restore)
 - [Troubleshooting cheatsheet](#troubleshooting-cheatsheet)
 
@@ -76,8 +77,13 @@ kubectl get nodes                 # should return to Ready within ~30–60s
 # IPs are stable; the cluster recovers on its own.
 
 # Re-open any port-forwards you need (they die on sleep):
-kubectl -n movieverse port-forward svc/edge-proxy 8080:80
+kubectl -n movieverse port-forward svc/edge-proxy 8080:80    # manual deploy
+kubectl -n argocd port-forward svc/argocd-server 30443:443   # ArgoCD UI
 ```
+
+> **CI/CD preview apps recover on their own.** They're reached via `hostPort` +
+> lima auto-forward (not a `kubectl port-forward`), so once the VMs are back lima
+> re-detects the sockets and `http://localhost:<port>` works again with no action.
 
 If a node stays `NotReady` or pods stay `ImagePullBackOff` with DNS errors, the
 gvproxy DNS didn't recover — fully restart that VM (`limactl stop <vm> && limactl start <vm>`).
@@ -127,6 +133,46 @@ kubectl top nodes ; kubectl top pods -n movieverse
 # rebuild + reload app images after a code change
 ./kubeadm/load-images.sh && kubectl -n movieverse rollout restart deploy/movieverse-backend deploy/movieverse-frontend
 ```
+
+## CI/CD preview environments
+
+Per-branch previews are created by **Jenkins** (it applies an ArgoCD `Application`
+per branch — there is no ApplicationSet). Full design in
+[cicd/README.md](../cicd/README.md); operating cheatsheet:
+
+```bash
+export KUBECONFIG="$HOME/.kube/kubeadm-mv.conf"
+
+# what previews exist + sync/health
+kubectl -n argocd get applications
+
+# a preview's URL (also shown on the ArgoCD Application page as "Preview URL")
+kubectl -n argocd get application mv-<slug> -o jsonpath='{.spec.info[0].value}{"\n"}'
+# -> http://localhost:<port>   (reachable directly; hostPort + lima auto-forward,
+#    NO kubectl port-forward — see DECISIONS.md D17)
+
+# tear a preview down (a branch delete does NOT run a pipeline, so do it by hand):
+kubectl -n argocd delete application mv-<slug>     # finalizer prunes the mv-<slug> ns
+# the branch's database lingers on the shared Postgres — drop it if you want:
+kubectl -n movieverse exec -it postgres-0 -- dropdb -U movieverse mv_<slug>
+```
+
+**Operating Jenkins**
+- Jenkins runs as a host container `movieverse-jenkins` on :8080. Rebuild/restart
+  it (e.g. after changing the pipeline image or to re-mint the deployer kubeconfig):
+  `GHCR_USER=<u> GHCR_PAT=<pat> KUBECONFIG=$HOME/.kube/kubeadm-mv.conf ./cicd/jenkins/jenkins-up.sh`
+- Jenkins reaches the cluster API at `host.docker.internal:6443` as the
+  `jenkins-deployer` SA, using a kubeconfig mounted at
+  `/var/jenkins_home/.kube/config` (minted by `jenkins-up.sh`). If a build's
+  "Deploy preview" stage says `no kubeconfig`, the container is stale — re-run
+  `jenkins-up.sh` from a checkout that has the current scripts (i.e. `main`).
+
+**Gotcha — storage must exist first.** If a preview is stuck `Missing` with the
+`db-ensure` init container looping on `pg_isready`, the shared Postgres isn't up —
+almost always because the `standard` StorageClass / local-path provisioner wasn't
+installed (the GitOps path doesn't run `deploy.sh`). `./setup.sh` installs it as
+step 2; to fix by hand, apply `k8s/local/local-path-provisioner.yaml` + the
+`standard` SC. See [DECISIONS.md](DECISIONS.md) D18.
 
 ## etcd backup & restore
 

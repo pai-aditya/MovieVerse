@@ -78,6 +78,21 @@ kubectl -n movieverse port-forward svc/edge-proxy 8080:80   # browse http://loca
 Full walkthrough (including monitoring, logging, Vault, ingress-nginx,
 metrics-server) in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+### CI/CD with per-branch preview environments
+
+The above is the **manual** single-namespace deploy. The repo also runs a
+self-hosted **Jenkins + ArgoCD** pipeline: push any branch → Jenkins builds/pushes
+images to ghcr and applies a per-branch ArgoCD `Application` → the branch deploys
+into its own `mv-<slug>` namespace and is live at **`http://localhost:<port>`**
+(no port-forward; the URL is shown on the ArgoCD Application page). Bring the whole
+stack up after a teardown with one command:
+
+```bash
+GHCR_USER=<github-user> GHCR_PAT=<pat-with-write:packages> ./setup.sh
+```
+
+Full runbook in [cicd/README.md](cicd/README.md).
+
 ## Local development (no Kubernetes)
 
 ```bash

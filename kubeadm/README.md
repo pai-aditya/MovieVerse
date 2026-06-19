@@ -51,6 +51,11 @@ open http://localhost:8080
 ./kubeadm/down.sh              # delete all VMs
 ```
 
+This is the **manual** single-namespace deploy. For the full **CI/CD path**
+(Jenkins builds every branch → ArgoCD deploys a per-branch preview at
+`http://localhost:<port>`), use the repo-root `./setup.sh` (it runs `cluster-up.sh`
+itself, then storage + ArgoCD + Jenkins). Runbook: [`cicd/README.md`](../cicd/README.md).
+
 ## Access model
 
 - **kubectl from the host:** the kubeconfig points at `https://127.0.0.1:6443`;

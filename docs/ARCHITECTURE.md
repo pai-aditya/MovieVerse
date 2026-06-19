@@ -225,11 +225,34 @@ one flat folder), Kustomize builds require
 `--load-restrictor LoadRestrictionsNone`. For ArgoCD this is set via
 `kustomize.buildOptions` in `argocd-cm`.
 
-## 12. GitOps & CI
+There are **two** GitOps stories in this repo, for different purposes:
 
-- **GitOps:** `k8s/argocd/application.yaml` defines an ArgoCD `Application` that
-  syncs an overlay from Git (auto-sync + self-heal). ArgoCD makes the cluster
-  match Git — no manual `kubectl apply` in steady state.
+**(a) Single-app GitOps demo — `k8s/argocd/`**
+- `k8s/argocd/application.yaml` defines an ArgoCD `Application` that syncs one
+  overlay from Git (auto-sync + self-heal). ArgoCD makes the cluster match Git —
+  no manual `kubectl apply` in steady state. This is the minimal "what is GitOps"
+  illustration.
+
+**(b) Full CI/CD with per-branch preview environments — `cicd/` (self-hosted)**
+- **Jenkins** (host/colima container) runs a multibranch pipeline: on every branch
+  push it tests/lints, builds + pushes `ghcr.io/pai-aditya/movieverse-{backend,frontend}:<slug>-<sha>`,
+  then **renders a per-branch ArgoCD `Application`** from
+  `cicd/argocd/preview-app.template.yaml` and `kubectl apply`s it (as the
+  least-privilege `jenkins-deployer` SA, reaching the API at
+  `host.docker.internal:6443`). **There is no ApplicationSet** — ArgoCD's GitHub SCM
+  generator is org-only and 404s on a personal account, so Jenkins self-registers
+  every branch (no hand-maintained list).
+- ArgoCD then deploys the branch into its own `mv-<slug>` namespace (own DB
+  `mv_<slug>` on the shared Postgres, own port). A PreSync `db-ensure` hook creates
+  the per-branch database and migrates the schema before the app syncs.
+- **Access:** each preview is reachable at **`http://localhost:<port>`** with no
+  port-forward — the `edge-proxy` pod uses a `hostPort` that lima auto-forwards to
+  the Mac (NodePorts can't be reached: no host route to the node network, and
+  iptables NodePorts have no socket for lima to forward). The URL is shown on the
+  ArgoCD Application page (`spec.info`). See [DECISIONS.md](DECISIONS.md) D16–D18
+  and the full runbook in [`cicd/README.md`](../cicd/README.md). Bring the whole
+  stack up after a teardown with `./setup.sh`.
+
 - **CI** (`.github/workflows/`):
   - `validate-manifests.yml` — renders the overlays and validates every manifest
     against the Kubernetes JSON schemas (kubeconform).

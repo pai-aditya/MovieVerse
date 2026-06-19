@@ -11,7 +11,7 @@ MovieVerse is a full-stack movie discovery and social platform. Users can browse
 - **Frontend:** React 18 + Vite + Tailwind CSS, running on port 5173
 - **Database:** PostgreSQL (via the `pg` driver)
 - **Deployment:** Kubernetes — multi-node **kubeadm** cluster (lima VMs on macOS) with Prometheus/Grafana, Loki/Promtail, ArgoCD, and Kustomize. See `kubeadm/README.md` (cluster) and `k8s/README.md` (manifests).
-- **CI/CD:** self-hosted **Jenkins** (host/colima) builds + pushes images to **ghcr.io** on every branch push; **ArgoCD** (app-of-apps + an `ApplicationSet`) deploys each branch to its own `mv-<slug>` namespace on its own NodePort, against a shared Postgres. See `cicd/README.md`.
+- **CI/CD:** self-hosted **Jenkins** (host/colima) builds + pushes images to **ghcr.io** on every branch push, then **applies a per-branch ArgoCD `Application`** (rendered from `cicd/argocd/preview-app.template.yaml`) so **ArgoCD** deploys that branch into its own `mv-<slug>` namespace against a shared Postgres. There is **no ApplicationSet** — ArgoCD's GitHub SCM generator is org-only (404s on a personal account), so Jenkins self-registers every branch instead (no hand-maintained list). Each preview is reachable at **`http://localhost:<port>`** (the edge-proxy pod uses a `hostPort` that lima auto-forwards — no `kubectl port-forward`), and that URL shows on the ArgoCD Application page. Full runbook + a one-shot bring-up script (`setup.sh`) in `cicd/README.md`.
 
 ## Architecture
 
@@ -142,4 +142,5 @@ The cluster is a real **kubeadm** cluster on macOS (4 lima VMs: 1 control-plane 
 - **Change the schema:** Edit `backend/db/schema.sql`; it's applied idempotently on startup.
 - **Add frontend page:** Create a file in `frontend/src/pages/`, import/export in `App.jsx`, add a route.
 - **Deploy to Kubernetes (manual):** `kubeadm/cluster-up.sh` → `kubeadm/load-images.sh` → `kubeadm/deploy.sh` (details in `kubeadm/README.md`).
-- **Deploy via CI/CD (automated):** push to any branch → Jenkins builds/pushes to ghcr → ArgoCD's `ApplicationSet` deploys a per-branch preview env. Bootstrap once with `cicd/argocd/app-of-apps.yaml` and `cicd/jenkins/jenkins-up.sh` (full runbook in `cicd/README.md`).
+- **Deploy via CI/CD (automated):** push to any branch → Jenkins builds/pushes to ghcr → Jenkins `kubectl apply`s a per-branch ArgoCD `Application` (as the least-privilege `jenkins-deployer` SA) → ArgoCD deploys the preview into `mv-<slug>`, reachable at `http://localhost:<port>`. Bring the whole stack up after a teardown with **`./setup.sh`** (cluster → storage → ArgoCD → app-of-apps → jenkins-deployer RBAC → Jenkins); full runbook in `cicd/README.md`.
+- **Reach a running preview:** open the **Preview URL** shown on the branch's ArgoCD Application page (`http://localhost:<port>`). No `kubectl port-forward` — the edge-proxy pod's `hostPort` is auto-forwarded to the Mac by lima. (The manual single-namespace deploy above still uses `port-forward svc/edge-proxy 8080:80`.)

@@ -128,6 +128,12 @@ kubectl -n argocd patch cm argocd-cm --type merge \
 kubectl apply -f k8s/argocd/application.yaml   # update repoURL to your fork first
 ```
 
+This `k8s/argocd/` app is the minimal single-app GitOps demo. The **full CI/CD
+system** — self-hosted Jenkins building every branch and ArgoCD serving a per-branch
+preview at `http://localhost:<port>` — lives under `cicd/` (its per-branch K8s
+manifests are the `k8s/kustomize/overlays/preview/` overlay). See
+[`cicd/README.md`](../cicd/README.md); bring it all up with the repo-root `./setup.sh`.
+
 ## CI/CD workflows (`.github/workflows/`)
 
 | Workflow | Trigger | What it does |

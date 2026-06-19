@@ -182,14 +182,22 @@ kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8081:80   # h
 kubectl apply -f k8s/vault/vault-dev.yaml
 
 # GitOps with ArgoCD + Jenkins CI — see the full runbook in cicd/README.md.
-# (ArgoCD is installed via Helm to avoid the DNS-blocked raw.githubusercontent.com,
-#  then the app-of-apps + per-branch ApplicationSet take over.)
+# Easiest path: ./setup.sh brings the WHOLE CI/CD stack up idempotently
+# (cluster -> storage -> ArgoCD via Helm -> app-of-apps -> jenkins-deployer RBAC
+#  -> Jenkins). It needs GHCR_USER + GHCR_PAT exported.
+GHCR_USER=<you> GHCR_PAT=<pat> ./setup.sh
+
+# Or the individual steps it runs (ArgoCD installed via Helm to avoid the
+# DNS-blocked raw.githubusercontent.com):
 helm repo add argo https://argoproj.github.io/argo-helm
-helm install argocd argo/argo-cd -n argocd --create-namespace \
+helm upgrade --install argocd argo/argo-cd -n argocd --create-namespace \
   --set 'configs.cm.kustomize\.buildOptions=--load-restrictor LoadRestrictionsNone'
-kubectl apply -f cicd/argocd/server-nodeport.yaml    # UI on https://<node-ip>:30443
+kubectl apply -f cicd/argocd/server-nodeport.yaml    # UI via port-forward 30443:443
 kubectl apply -f cicd/argocd/appproject.yaml
-kubectl apply -f cicd/argocd/app-of-apps.yaml        # platform apps + preview ApplicationSet
+kubectl apply -f cicd/argocd/app-of-apps.yaml        # platform apps (Postgres/monitoring/logging/vault)
+kubectl apply -f cicd/argocd/jenkins-deployer-rbac.yaml   # SA Jenkins applies previews as
+# Per-branch preview Applications are NOT created here — Jenkins applies one per
+# branch on each build (no ApplicationSet). Each lands at http://localhost:<port>.
 ```
 
 > `raw.githubusercontent.com` is sometimes DNS-blocked on the corp network; if a
@@ -207,11 +215,13 @@ colima stop               # stop the build engine (optional)
 
 | Script | Action |
 |--------|--------|
+| `setup.sh` (repo root) | **one-shot CI/CD bring-up** after a teardown: cluster → storage → ArgoCD → app-of-apps → jenkins-deployer RBAC → Jenkins (idempotent; needs `GHCR_USER`/`GHCR_PAT`) |
 | `kubeadm/cluster-up.sh` | provision VMs + `kubeadm init` + CNI + join + label/taint + host kubeconfig |
-| `kubeadm/load-images.sh` | build app images (colima), `docker save`, `ctr import` onto workers |
-| `kubeadm/deploy.sh` | storage (local-path + `standard` SC) + app (`local` overlay) + edge-proxy |
+| `kubeadm/load-images.sh` | build app images (colima), `docker save`, `ctr import` onto workers (manual-deploy path only; CI/CD pulls from ghcr) |
+| `kubeadm/deploy.sh` | storage (local-path + `standard` SC) + app (`local` overlay) + edge-proxy — the **manual** single-namespace deploy (no CI/CD) |
 | `kubeadm/etcd-backup.sh` | `etcdctl snapshot save` of the real etcd via the control-plane pod |
 | `kubeadm/down.sh` | `limactl delete` all VMs |
+| `cicd/jenkins/jenkins-up.sh` | build + run the Jenkins controller container on the host (:8080), mounting the jenkins-deployer kubeconfig |
 
 After a host reboot/sleep, see
 [OPERATIONS.md → Recovering after host sleep](OPERATIONS.md#recovering-after-host-sleep).

@@ -139,11 +139,56 @@ Work was committed in 5 logical commits on `feat/devops-platform-kubeadm`, autho
 repo) with no co-author trailers. Pushing required switching `gh` to the personal
 account and adding the `workflow` token scope (the branch touches `.github/workflows/`).
 
+### D16 — Per-branch previews: Jenkins applies an ArgoCD `Application` (no ApplicationSet)
+**Why:** the obvious GitOps choice is an `ApplicationSet` with a GitHub **SCM
+Provider** generator that auto-discovers branches — but that generator is
+**org-only** (`GET /orgs/{org}/repos`), which **404s for a personal account**
+(`pai-aditya` is a user, not an org). A **List** generator works but needs every
+branch typed in by hand, which doesn't scale. So instead **Jenkins** — which
+already iterates every branch — renders a per-branch `Application` from
+`cicd/argocd/preview-app.template.yaml` (substituting branch, slug, head SHA,
+`mv_<slug>` DB name, deterministic NodePort) and `kubectl apply`s it. New branch →
+new environment, automatically, with no list to maintain. Jenkins authenticates as
+a **least-privilege `jenkins-deployer` ServiceAccount** (RBAC in
+`cicd/argocd/jenkins-deployer-rbac.yaml`: only create/update/delete `applications`
+in `argocd`), reaching the cluster API at **`host.docker.internal:6443`** (the
+colima Jenkins container → the lima-forwarded apiserver). Teardown of a branch
+doesn't run a pipeline, so a preview is removed explicitly:
+`kubectl -n argocd delete application mv-<slug>` (a finalizer prunes the namespace).
+
+### D17 — Preview access: `hostPort` + lima auto-forward → `http://localhost:<port>`
+**Why:** the Mac can't route to the lima node network (`192.168.104.x`), so
+`http://<node-ip>:<nodeport>` never works from the host. And lima can't help: its
+port-forwarding is **socket-based** (it forwards real listeners like the apiserver
+`:6443`), but **iptables-mode kube-proxy NodePorts have no listening socket** — the
+node serves them purely via iptables DNAT. So the per-branch overlay also gives the
+`edge-proxy` pod a **`hostPort`** equal to its port (kustomize patch in the preview
+template; Flannel's CNI includes the `portmap` plugin). That hostPort is a *real*
+socket on the pod's worker node, which lima auto-forwards to the Mac's
+`127.0.0.1:<port>` — exactly the `:6443` mechanism. The URL is published on the
+ArgoCD Application page via **`spec.info`** ("Preview URL"). `Recreate` strategy on
+edge-proxy avoids a same-node hostPort clash during rollout. Platform singletons
+(ArgoCD/Grafana/Prometheus) aren't worth a hostPort and still use a one-off
+`kubectl port-forward`. (This supersedes the `localhost:8080` port-forward of [D8],
+which remains the model for the *manual* single-namespace deploy.)
+
+### D18 — `setup.sh` one-shot bring-up; storage is a CI/CD prerequisite
+**Why:** the GitOps path does **not** run `kubeadm/deploy.sh`, so it never installs
+the `standard` StorageClass — and without it postgres PVCs hang `Pending`,
+`postgres-0` never schedules, and the preview `db-ensure` PreSync hook waits forever
+on `pg_isready` (app sits `Missing`). `setup.sh` (repo root) encodes the correct
+order for a clean bring-up after `down.sh` + removing the Jenkins container:
+cluster-up → **storage (local-path + `standard` SC)** → ArgoCD (Helm) → app-of-apps
+→ jenkins-deployer RBAC → `jenkins-up.sh`. It's idempotent. Previews are then
+recreated automatically by Jenkins on its next branch scan.
+
 ## Bugs found and fixed along the way
 
 | Symptom | Root cause | Fix |
 |---------|-----------|-----|
 | Backend pods never created (`FailedCreate`) | The `wait-for-postgres` init container requested `25m/32Mi`, **below the LimitRange minimum** (`50m/64Mi`) | Raised the init container requests to `50m/64Mi` in `k8s/app/backend.yaml` |
+| Preview app stuck `Missing`; `db-ensure` init container looping on `pg_isready` | On the GitOps path the `standard` StorageClass was never installed (only `deploy.sh` does that), so postgres PVCs were `Pending` and `postgres-0` never scheduled | Install `k8s/local/local-path-provisioner.yaml` + the `standard` SC (now step 2 of `setup.sh`) |
+| `db-ensure` PreSync hook deadlocked (`serviceaccount "movieverse-backend" not found`, then `secret "db-credentials" not found`) | The hook referenced Sync-phase resources (SA/Secret/ConfigMap/Service created *after* PreSync) | Dropped the SA from the Job (uses default SA; makes no API calls) and promoted `db-credentials`/`backend-config`/`postgres` to PreSync wave -1 (overlay patches) |
 | Postgres PVC stuck Pending; provisioner `ProvisioningFailed` | Hand-authored local-path ClusterRole was missing `pods: create/delete` (the provisioner spawns a helper pod per volume) | Added the `pods create/delete` rule in `k8s/local/local-path-provisioner.yaml` |
 | `kubeadm init` preflight error | `conntrack` (and `socat`/`ethtool`) not installed on the VM | Added them to the apt install in `kubeadm/lima-k8s-node.yaml` |
 | Promtail `CrashLoopBackOff` ("too many open files") | Host inotify limits too low for tailing all pod logs | Raised `fs.inotify.max_user_*` sysctls (in the lima template for kubeadm; was a manual `colima ssh` fix on kind) |
