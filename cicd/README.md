@@ -24,7 +24,7 @@ the environment is torn down automatically. Delete a pod by hand → it comes ba
  │ sync preview overlay     │  (no hand-maintained branch list — Jenkins
  └──────────────────────────┘   self-registers every branch it builds)
         ▼
- app live at  http://<node-ip>:<port>   (or port-forward — see Fixed ports)
+ app live at  http://localhost:<port>   (hostPort+lima, no port-forward; URL in ArgoCD)
 ```
 
 > **Why Jenkins applies the Application (not an ArgoCD ApplicationSet)?** ArgoCD's
@@ -65,14 +65,20 @@ The per-branch Kubernetes manifests live in `k8s/kustomize/overlays/preview/`
 | Service    | URL                              | How |
 |------------|----------------------------------|-----|
 | Jenkins    | `http://localhost:8080`          | host container port |
-| ArgoCD     | `https://<node-ip>:30443`        | NodePort |
-| Grafana    | `http://<node-ip>:30030`         | NodePort (admin/admin) |
-| Prometheus | `http://<node-ip>:30090`         | NodePort |
-| Branch app | `http://<node-ip>:<30000+hash>`  | NodePort (shown in the ArgoCD app) |
+| Branch app | `http://localhost:<30000+hash>`  | **hostPort + lima auto-forward — no port-forward** (URL shown in the ArgoCD app) |
+| ArgoCD     | `https://localhost:30443`        | `kubectl -n argocd port-forward svc/argocd-server 30443:443` |
+| Grafana    | `http://localhost:30030`         | `kubectl -n monitoring port-forward svc/grafana 30030:80` (admin/admin) |
+| Prometheus | `http://localhost:30090`         | `kubectl -n monitoring port-forward svc/prometheus 30090:9090` |
 
-`<node-ip>` is any lima node's `192.168.104.x` address (`limactl list`, or
-`kubectl get nodes -o wide`). If your host can't route to the node IPs, fall back
-to `kubectl -n <ns> port-forward svc/<svc> <local>:<port>`.
+**Branch apps need no port-forward.** The Mac can't route to the lima node network
+(`192.168.104.x`), and NodePorts are pure iptables rules with no socket, so lima
+can't forward those. The preview overlay therefore also gives the `edge-proxy` pod
+a **`hostPort`** equal to its port — a real listening socket that lima
+auto-forwards to `127.0.0.1` (the same mechanism that exposes the API server on
+`:6443`). So each branch is reachable at `http://localhost:<port>`, and that exact
+URL is published on the Application page in ArgoCD (`spec.info` → "Preview URL").
+The platform services above still use a one-off `port-forward` (they're singletons,
+not worth a hostPort).
 
 ---
 

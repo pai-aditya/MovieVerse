@@ -23,6 +23,12 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: movieverse
+  # Shown as a clickable link on the Application page in the ArgoCD UI. The edge
+  # proxy binds this port via hostPort on its node, and lima auto-forwards that
+  # socket to the host — so the URL works with NO `kubectl port-forward`.
+  info:
+    - name: Preview URL
+      value: http://localhost:__NODEPORT__
   source:
     repoURL: https://github.com/pai-aditya/MovieVerse.git
     targetRevision: __BRANCH__
@@ -49,6 +55,23 @@ spec:
             - op: add
               path: /spec/ports/0/nodePort
               value: __NODEPORT__
+        # Bind the same port on the edge-proxy's node via hostPort: this creates a
+        # real listening socket that lima auto-forwards to the Mac's 127.0.0.1, so
+        # the app is reachable at http://localhost:__NODEPORT__ with no manual
+        # port-forward. (NodePorts are pure iptables rules — no socket — so lima
+        # cannot forward them; hostPort is what makes the localhost URL work.)
+        # Recreate strategy avoids a same-node hostPort clash during a rollout.
+        - target:
+            kind: Deployment
+            name: edge-proxy
+          patch: |-
+            - op: add
+              path: /spec/template/spec/containers/0/ports/0/hostPort
+              value: __NODEPORT__
+            - op: add
+              path: /spec/strategy
+              value:
+                type: Recreate
   destination:
     server: https://kubernetes.default.svc
     namespace: mv-__SLUG__
