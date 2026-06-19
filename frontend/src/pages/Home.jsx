@@ -137,7 +137,7 @@ const Home = () => {
           <div className='flex items-center'>
                     <input
                         type='text'
-                        placeholder='Search a movie...'
+                        placeholder='Search a movie (new feature2)...'
                         className='border border-gray-300 px-4 py-2 rounded-lg mr-4 text-white bg-custom-primary-purple'
                         value={searchQuery}
                         onChange={handleSearchInputChange}
