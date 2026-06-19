@@ -42,7 +42,7 @@ const Sidebar = ({ children ,user} ) => {
           `}
           >
             <div className="leading-4">
-              <p className="font-semibold text-white">{user && user.user ? user.user.displayName : "Login Now!!!"}</p>
+              <p className="font-semibold text-white">{user && user.user ? user.user.displayName : "Login Now main2!!!"}</p>
               <span className="text-xs text-white">{user && user.user && user.user.username ? user.user.username : ""}</span>
             </div>
             {/* <MoreVertical size={20} /> */}
