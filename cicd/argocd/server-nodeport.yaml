@@ -1,7 +1,9 @@
-# Pin argocd-server to a FIXED NodePort so the UI/API is always reachable at
-# https://<any-node-ip>:30443 (and the Jenkins refresh step has a stable target).
+# Pin argocd-server to a FIXED NodePort (30443) for a stable in-cluster Service.
 # Apply after installing ArgoCD:  kubectl apply -f cicd/argocd/server-nodeport.yaml
-# (argocd-server is typically run with --insecure behind this; see cicd/README.md.)
+# NOTE: the NodePort alone is NOT reachable from the Mac (lima can't forward
+# iptables-only NodePorts). setup.sh additionally patches a hostPort: 30443 onto the
+# argocd-server pod so the UI is reachable at https://localhost:30443 with no
+# port-forward (lima auto-forwards that socket). See cicd/README.md.
 apiVersion: v1
 kind: Service
 metadata:

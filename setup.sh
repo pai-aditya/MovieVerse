@@ -91,6 +91,24 @@ helm upgrade --install argocd argo/argo-cd -n argocd --create-namespace \
   --set-string 'configs.cm.accounts\.admin=apiKey\, login'
 kubectl apply -f "$ROOT/cicd/argocd/server-nodeport.yaml"
 kubectl -n argocd rollout status deploy/argocd-server --timeout=300s
+# Reach the UI at https://localhost:30443 with NO `kubectl port-forward`. A NodePort
+# alone can't be reached from the Mac (lima can't forward iptables-only NodePorts),
+# so bind the same port via hostPort on the server pod's node — a real socket lima
+# auto-forwards to 127.0.0.1 (the same trick the branch edge-proxy uses). Recreate
+# strategy avoids a same-node hostPort clash during the rollout.
+kubectl -n argocd patch deploy argocd-server --type=merge \
+  -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+kubectl -n argocd patch deploy argocd-server --type=strategic -p '
+spec:
+  template:
+    spec:
+      containers:
+        - name: server
+          ports:
+            - containerPort: 8080
+              hostPort: 30443
+'
+kubectl -n argocd rollout status deploy/argocd-server --timeout=120s
 
 # ---------------------------------------------------------------------------
 step "4/6  GitOps bootstrap (AppProject + app-of-apps)"
@@ -123,7 +141,6 @@ $(printf '\033[1;32m==> Stack is up.\033[0m')
 
   Jenkins   http://localhost:8080            (admin / $ADMIN_PASSWORD)
   ArgoCD    https://localhost:30443          (admin / ${ADMIN_PW:-<see argocd-initial-admin-secret>})
-            kubectl -n argocd port-forward svc/argocd-server 30443:443
 
 Next:
   • One-time, if you haven't: make the ghcr packages public

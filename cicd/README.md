@@ -66,7 +66,7 @@ The per-branch Kubernetes manifests live in `k8s/kustomize/overlays/preview/`
 |------------|----------------------------------|-----|
 | Jenkins    | `http://localhost:8080`          | host container port |
 | Branch app | `http://localhost:<30000+hash>`  | **hostPort + lima auto-forward — no port-forward** (URL shown in the ArgoCD app) |
-| ArgoCD     | `https://localhost:30443`        | `kubectl -n argocd port-forward svc/argocd-server 30443:443` |
+| ArgoCD     | `https://localhost:30443`        | **hostPort on the server pod + lima auto-forward — no port-forward** |
 | Grafana    | `http://localhost:30030`         | `kubectl -n monitoring port-forward svc/grafana 30030:80` (admin/admin) |
 | Prometheus | `http://localhost:30090`         | `kubectl -n monitoring port-forward svc/prometheus 30090:9090` |
 
@@ -77,8 +77,11 @@ a **`hostPort`** equal to its port — a real listening socket that lima
 auto-forwards to `127.0.0.1` (the same mechanism that exposes the API server on
 `:6443`). So each branch is reachable at `http://localhost:<port>`, and that exact
 URL is published on the Application page in ArgoCD (`spec.info` → "Preview URL").
-The platform services above still use a one-off `port-forward` (they're singletons,
-not worth a hostPort).
+**ArgoCD itself** uses the same trick: `setup.sh` patches a `hostPort: 30443` onto
+the `argocd-server` pod (Recreate strategy, to avoid a same-node clash on rollout)
+so the UI is reachable at `https://localhost:30443` with no port-forward. The
+remaining platform services (Grafana, Prometheus) are singletons not worth a
+hostPort, so they still use a one-off `port-forward`.
 
 ---
 
@@ -95,6 +98,17 @@ helm install argocd argo/argo-cd -n argocd --create-namespace \
   --set 'configs.cm.kustomize\.buildOptions=--load-restrictor LoadRestrictionsNone' \
   --set-string 'configs.cm.accounts\.admin=apiKey\, login'
 kubectl apply -f cicd/argocd/server-nodeport.yaml
+# Reach the UI at https://localhost:30443 with no port-forward — bind a hostPort on
+# the server pod (a real socket lima auto-forwards; a NodePort alone can't be):
+kubectl -n argocd patch deploy argocd-server --type=merge \
+  -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+kubectl -n argocd patch deploy argocd-server --type=strategic \
+  -p 'spec:
+  template:
+    spec:
+      containers:
+        - name: server
+          ports: [{containerPort: 8080, hostPort: 30443}]'
 # initial admin password:
 kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' | base64 -d; echo
@@ -104,9 +118,7 @@ kubectl -n argocd get secret argocd-initial-admin-secret \
 ```bash
 kubectl apply -f cicd/argocd/appproject.yaml
 kubectl apply -f cicd/argocd/app-of-apps.yaml
-
-# Reach the ArgoCD UI (host can't route to node IPs — port-forward instead):
-kubectl -n argocd port-forward svc/argocd-server 30443:443   # https://localhost:30443
+# ArgoCD UI is already at https://localhost:30443 (hostPort patched in step 2).
 ```
 ArgoCD now syncs the platform stacks (shared Postgres, monitoring, logging, vault).
 Per-branch preview Applications are created by Jenkins (next steps), not here.
