@@ -1,0 +1,67 @@
+# Per-branch preview Application — rendered and `kubectl apply`d by the Jenkins
+# pipeline (the 'Deploy preview' stage) on EVERY branch build. Jenkins substitutes
+# the __PLACEHOLDERS__ with values it already computes (branch, slug, head SHA,
+# per-branch DB name, deterministic NodePort), so a fresh branch gets its own
+# environment automatically — no hand-maintained branch list.
+#
+#   name/ns   : mv-__SLUG__            (__SLUG__ = branch lowercased, '/' -> '-')
+#   image tag : __SLUG__-__SHA__       (exactly what Jenkins just pushed to ghcr)
+#   DB name   : __DB_NAME__            (mv_<slug>, own DB on the shared Postgres)
+#   NodePort  : __NODEPORT__           (30000 + adler32(branch) % 2000)
+#
+# This replaces the old List-generator ApplicationSet: that needed every branch
+# typed in by hand, which doesn't scale. Teardown: deleting this Application (or
+# its branch's namespace) prunes the environment — the finalizer cascades the
+# namespace. (A branch delete doesn't run a pipeline, so removal is manual:
+# `kubectl -n argocd delete application mv-<slug>`. See cicd/README.md.)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mv-__SLUG__
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: movieverse
+  source:
+    repoURL: https://github.com/pai-aditya/MovieVerse.git
+    targetRevision: __BRANCH__
+    path: k8s/kustomize/overlays/preview
+    kustomize:
+      namespace: mv-__SLUG__
+      images:
+        - movieverse-backend=ghcr.io/pai-aditya/movieverse-backend:__SLUG__-__SHA__
+        - movieverse-frontend=ghcr.io/pai-aditya/movieverse-frontend:__SLUG__-__SHA__
+      patches:
+        # Per-branch database name on the shared Postgres server.
+        - target:
+            kind: Secret
+            name: db-credentials
+          patch: |-
+            - op: replace
+              path: /stringData/POSTGRES_DB
+              value: __DB_NAME__
+        # Deterministic NodePort derived from the branch name (matches Jenkins).
+        - target:
+            kind: Service
+            name: edge-proxy
+          patch: |-
+            - op: add
+              path: /spec/ports/0/nodePort
+              value: __NODEPORT__
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mv-__SLUG__
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m

@@ -12,19 +12,27 @@ the environment is torn down automatically. Delete a pod by hand → it comes ba
  ┌──────────────────────────┐     ghcr.io/pai-aditya/
  │ JENKINS (host / colima)  │────▶ movieverse-backend :<slug>-<sha>
  │ test → build → push      │      movieverse-frontend:<slug>-<sha>
- │ → refresh ArgoCD         │
- └──────────────────────────┘
-        │ (ArgoCD SCM generator independently polls GitHub for branch heads)
+ │ → kubectl apply an       │
+ │   ArgoCD Application CR   │  per branch (rendered from preview-app.template.yaml):
+ └──────────────────────────┘   ns       = mv-<slug>
+        │ (applied to the cluster   image    = :<slug>-<sha>
+        │  API as the least-priv     database = mv_<slug> (shared Postgres)
+        │  jenkins-deployer SA)      NodePort = 30000 + adler32(branch)%2000
         ▼
  ┌──────────────────────────┐
- │ ARGOCD ApplicationSet    │  per branch:
- │ render preview overlay   │   ns       = mv-<slug>
- │ inject ns/image/db/port  │   image    = :<slug>-<sha>
- │ automated + selfHeal     │   database = mv_<slug> (shared Postgres)
- └──────────────────────────┘   NodePort = 30000 + hash(branch)%2000
+ │ ARGOCD                   │  syncs mv-<slug>, automated + selfHeal
+ │ sync preview overlay     │  (no hand-maintained branch list — Jenkins
+ └──────────────────────────┘   self-registers every branch it builds)
         ▼
- app live at  http://<node-ip>:<port>
+ app live at  http://<node-ip>:<port>   (or port-forward — see Fixed ports)
 ```
+
+> **Why Jenkins applies the Application (not an ArgoCD ApplicationSet)?** ArgoCD's
+> GitHub *SCM Provider* generator is org-only (`GET /orgs/{org}/repos`), which 404s
+> for a personal account. A *List* generator works but needs every branch typed in
+> by hand. So instead Jenkins — which already iterates every branch — renders a
+> per-branch `Application` from `argocd/preview-app.template.yaml` and `kubectl
+> apply`s it. New branch → new environment, automatically, no list to maintain.
 
 ## Layout
 
@@ -37,19 +45,20 @@ cicd/
 │   ├── casc.yaml          # Config-as-Code: admin, creds (from env), the seed job
 │   └── jenkins-up.sh      # build + `docker run` Jenkins on a fixed port (no compose)
 └── argocd/
-    ├── appproject.yaml    # project scoping (repo + namespaces)
-    ├── app-of-apps.yaml   # the ONE thing you apply by hand
+    ├── appproject.yaml             # project scoping (repo + namespaces)
+    ├── app-of-apps.yaml            # the ONE thing you apply by hand
     ├── server-nodeport.yaml
+    ├── jenkins-deployer-rbac.yaml  # least-priv SA Jenkins uses to register previews
+    ├── preview-app.template.yaml   # per-branch Application; Jenkins renders+applies it
     └── apps/
         ├── 00-shared-data.yaml     # shared Postgres + PriorityClasses + backup
         ├── 10-monitoring.yaml      # Prometheus :30090 + Grafana :30030
         ├── 20-logging.yaml         # Loki + Promtail
-        ├── 30-vault.yaml           # Vault (dev)
-        └── 40-preview-appset.yaml  # per-branch preview environments
+        └── 30-vault.yaml           # Vault (dev)
 ```
 The per-branch Kubernetes manifests live in `k8s/kustomize/overlays/preview/`
-(and the shared data-plane in `…/overlays/shared/`) — the ApplicationSet renders
-them with per-branch values injected.
+(and the shared data-plane in `…/overlays/shared/`) — Jenkins renders a per-branch
+`Application` that points ArgoCD at this overlay with the per-branch values injected.
 
 ## Fixed ports
 
@@ -85,40 +94,39 @@ kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
-### 3. GitHub token Secret for the ApplicationSet (branch discovery)
-```bash
-kubectl -n argocd create secret generic github-token --from-literal=token=<YOUR_GITHUB_PAT>
-```
-
-### 4. Bootstrap GitOps
+### 3. Bootstrap GitOps
 ```bash
 kubectl apply -f cicd/argocd/appproject.yaml
 kubectl apply -f cicd/argocd/app-of-apps.yaml
 
-kubectl -n argocd port-forward svc/argocd-server 30443:443   
-
+# Reach the ArgoCD UI (host can't route to node IPs — port-forward instead):
+kubectl -n argocd port-forward svc/argocd-server 30443:443   # https://localhost:30443
 ```
-ArgoCD now syncs the platform stacks and starts creating a preview Application per
-branch.
+ArgoCD now syncs the platform stacks (shared Postgres, monitoring, logging, vault).
+Per-branch preview Applications are created by Jenkins (next steps), not here.
 
-### 5. ArgoCD API token for Jenkins (optional but gives instant deploys)
+### 4. Jenkins deployer identity (least-privilege cluster access)
+Jenkins registers previews by applying an `Application` CR, so it needs a token
+that can manage Applications in the `argocd` namespace — nothing more:
 ```bash
-argocd login localhost:30443 --username admin --password <argocd_password> --insecure
-argocd account generate-token --account admin   # paste into ARGOCD_TOKEN below
+kubectl apply -f cicd/argocd/jenkins-deployer-rbac.yaml
 ```
-Without it, deploys still happen on ArgoCD's next poll (≈ a couple minutes).
+`jenkins-up.sh` reads the resulting `jenkins-deployer-token` to mint the kubeconfig
+it mounts into the container (apiserver reached at `host.docker.internal:6443`).
 
-### 6. Start Jenkins (on the host, fixed port 8080)
+### 5. Start Jenkins (on the host, fixed port 8080)
 ```bash
 export GHCR_USER=pai-aditya
-export GHCR_PAT=<YOUR_GITHUB_PAT>
-export ARGOCD_TOKEN=<YOUR_ARGOCD_TOKEN>      # from step 5; optional
-export ARGOCD_SERVER=localhost:30443
+export GHCR_PAT=<YOUR_GITHUB_PAT>          # classic PAT, write:packages
 export ADMIN_PASSWORD=admin
+export KUBECONFIG=$HOME/.kube/kubeadm-mv.conf   # host kubeconfig with cluster access
 ./cicd/jenkins/jenkins-up.sh
 ```
+(`jenkins-up.sh` uses `KUBECONFIG` once, on the host, only to read the deployer
+token and write the container's kubeconfig — the container itself never gets your
+admin creds.)
 
-### 7. Make the ghcr packages public (one-time, after the first push)
+### 6. Make the ghcr packages public (one-time, after the first push)
 On the first build Jenkins creates `movieverse-backend` / `movieverse-frontend`
 packages under your GitHub account. In **GitHub → Packages → each package →
 Settings → Change visibility → Public**. Public packages need **no imagePullSecret**
@@ -133,25 +141,33 @@ git checkout -b feature/my-change
 # ...edit...
 git push -u origin feature/my-change
 ```
-Within ~2 min: Jenkins builds `feature-my-change-<sha>`, pushes to ghcr, ArgoCD
-creates namespace `mv-feature-my-change` and serves it on its NodePort. Find the
-port in the ArgoCD UI (or `kubectl get svc -A | grep edge-proxy`).
+Within ~2 min: Jenkins builds `feature-my-change-<sha>`, pushes to ghcr, then
+`kubectl apply`s the rendered `Application` — ArgoCD creates namespace
+`mv-feature-my-change` and serves it on its NodePort. Find the port in the ArgoCD
+UI, or:
+```bash
+kubectl get svc -A -l app.kubernetes.io/part-of=movieverse | grep edge-proxy
+```
 
-Merge/delete the branch → ArgoCD prunes the namespace and its database stays on
-the shared server (drop it manually if you want: `dropdb mv_feature_my_change`).
+**Teardown.** A deleted branch does *not* run a pipeline, so its preview must be
+removed explicitly (this also prunes the namespace via the app's finalizer):
+```bash
+kubectl -n argocd delete application mv-feature-my-change
+dropdb -h <postgres> mv_feature_my_change   # optional: reclaim the shared-DB database
+```
 
 ## Notes & alternatives
 
-- **Trigger model:** default is **polling** (Jenkins scans every 2 min; the
-  ApplicationSet polls GitHub) — no inbound exposure needed behind the corp
-  network. For instant builds, expose Jenkins via `smee.io`/`ngrok` and add a
-  GitHub webhook to `/github-webhook/`.
+- **Trigger model:** default is **polling** (Jenkins scans every 2 min and, on a
+  build, applies the branch's Application — ArgoCD then syncs it) — no inbound
+  exposure needed behind the corp network. For instant builds, expose Jenkins via
+  `smee.io`/`ngrok` and add a GitHub webhook to `/github-webhook/`.
 - **Private ghcr packages:** create a `dockerconfigjson` pull Secret and replicate
   it into every `mv-*` namespace (e.g. with `emberstack/reflector`), then add
   `imagePullSecrets` to the preview overlay. Public packages avoid all of this.
 - **Port collisions:** NodePorts are `30000 + adler32(branch) % 2000`; two branch
-  names could theoretically collide. Rename a branch or widen the modulus in
-  `40-preview-appset.yaml` if it ever happens.
+  names could theoretically collide. Rename a branch or widen the modulus (in the
+  Jenkinsfile `NODEPORT` calc and `preview-app.template.yaml`) if it ever happens.
 - **Resources:** each preview is frontend + backend + edge-proxy + a one-shot Job
   against the shared Postgres. On the 2 GiB nodes, keep ~3–4 previews live at once
   (or bump the lima workers to 4 GiB in `kubeadm/lima-k8s-node.yaml`).

@@ -13,3 +13,6 @@
 
 # never commit a real CA bundle (kept in ~/.movieverse-ca, outside the repo)
 *.pem
+
+# Jenkins deployer kubeconfig minted by jenkins-up.sh (contains a live SA token)
+cicd/jenkins/.jenkins-deployer.kubeconfig

@@ -1,0 +1,45 @@
+# Least-privilege identity Jenkins uses to register per-branch preview
+# Applications. Jenkins (a colima container) reaches the cluster API at
+# host.docker.internal:6443 and `kubectl apply`s an Application CR — so it only
+# needs create/update/delete on argoproj.io Applications in the argocd namespace,
+# NOT cluster-admin. Apply once: kubectl apply -f cicd/argocd/jenkins-deployer-rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-deployer
+  namespace: argocd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-deployer
+  namespace: argocd
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-deployer
+  namespace: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-deployer
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-deployer
+    namespace: argocd
+---
+# Non-expiring token for the SA (read by jenkins-up.sh to build the kubeconfig
+# it mounts into the Jenkins container). Kept in-cluster; never committed.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jenkins-deployer-token
+  namespace: argocd
+  annotations:
+    kubernetes.io/service-account.name: jenkins-deployer
+type: kubernetes.io/service-account-token

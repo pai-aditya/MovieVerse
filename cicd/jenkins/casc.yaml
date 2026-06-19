@@ -13,11 +13,6 @@ jenkins:
   authorizationStrategy:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
-  globalNodeProperties:
-    - envVars:
-        env:
-          - key: ARGOCD_SERVER
-            value: "${ARGOCD_SERVER:-argocd.local:30443}"
 
 credentials:
   system:
@@ -29,11 +24,6 @@ credentials:
               id: ghcr-pat
               username: "${GHCR_USER}"
               password: "${GHCR_PAT}"
-          # ArgoCD API token for the "trigger" step.
-          - string:
-              scope: GLOBAL
-              id: argocd-token
-              secret: "${ARGOCD_TOKEN:-}"
 
 unclassified:
   location:

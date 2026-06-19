@@ -1,8 +1,10 @@
 // MovieVerse CI — multibranch pipeline.
 // Runs on the host Jenkins (colima docker). For EVERY branch:
-//   test/lint -> build backend+frontend images -> push to ghcr -> poke ArgoCD.
-// Image tag is <branch-slug>-<full-sha>; ArgoCD's ApplicationSet derives the
-// SAME tag from the branch head SHA, so no git write-back is needed.
+//   test/lint -> build backend+frontend images -> push to ghcr -> register an
+//   ArgoCD preview Application for the branch.
+// Image tag is <branch-slug>-<full-sha>. The 'Deploy preview' stage renders an
+// Application CR from cicd/argocd/preview-app.template.yaml and applies it to the
+// cluster, so every branch gets its own environment with NO hand-maintained list.
 pipeline {
   agent any
 
@@ -20,19 +22,34 @@ pipeline {
     FRONTEND_IMAGE = "${REGISTRY}/${OWNER}/movieverse-frontend"
     // Same-origin relative API path so ONE frontend image works on any node:port.
     VITE_SERVER_URL = '/api'
-    ARGOCD_SERVER  = 'argocd.local:30443'         // overridden by Jenkins global env if set
+    // Cluster API as seen from the Jenkins container (colima) — the lima-forwarded
+    // apiserver on the host. Overridable via Jenkins global env. KUBECONFIG (the
+    // jenkins-deployer creds) is mounted by jenkins-up.sh.
+    KUBECONFIG     = '/var/jenkins_home/.kube/config'
   }
 
   stages {
     stage('Setup') {
       steps {
         script {
-          // Slug must match the ApplicationSet template: '/' -> '-', lowercased.
+          // Slug: '/' -> '-', lowercased. DB name: '/' and '-' -> '_'. These must
+          // match the preview overlay's expectations and the old port scheme.
           env.BRANCH_SLUG = env.BRANCH_NAME.toLowerCase().replaceAll('/', '-')
           env.SHA = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
           env.TAG = "${env.BRANCH_SLUG}-${env.SHA}"
           env.APP_NAME = "mv-${env.BRANCH_SLUG}".take(53)
-          echo "Building tag: ${env.TAG}"
+          env.DB_NAME = "mv_" + env.BRANCH_NAME.toLowerCase().replaceAll('/', '_').replaceAll('-', '_')
+          // Deterministic NodePort = 30000 + adler32(branch) % 2000. Pure-Groovy
+          // adler32 (== Go sprig adler32sum / Python zlib.adler32) so the port is
+          // stable and matches what the old ApplicationSet produced.
+          int a = 1, b = 0
+          for (byte by : env.BRANCH_NAME.getBytes('UTF-8')) {
+            a = (a + (by & 0xff)) % 65521
+            b = (b + a) % 65521
+          }
+          long adler = ((long) b << 16) | a
+          env.NODEPORT = (30000 + (int) (adler % 2000L)).toString()
+          echo "Building tag: ${env.TAG}  ->  app ${env.APP_NAME}, db ${env.DB_NAME}, nodePort ${env.NODEPORT}"
         }
       }
     }
@@ -87,25 +104,30 @@ pipeline {
       }
     }
 
-    stage('Trigger ArgoCD') {
+    stage('Deploy preview') {
       steps {
-        // Best-effort hard refresh so the deploy is instant. If the branch is new,
-        // the ApplicationSet creates the Application on its next reconcile anyway.
-        withCredentials([string(credentialsId: 'argocd-token', variable: 'ARGOCD_TOKEN')]) {
-          sh '''
-            curl -sk -X POST \
-              -H "Authorization: Bearer $ARGOCD_TOKEN" \
-              "https://$ARGOCD_SERVER/api/v1/applications/$APP_NAME?refresh=hard" \
-              || echo "ArgoCD refresh skipped (app not created yet) — appset will reconcile."
-          '''
-        }
+        // Render the per-branch Application CR and apply it to the cluster (via the
+        // mounted jenkins-deployer kubeconfig). ArgoCD then syncs the branch into
+        // mv-<slug>. `apply` is idempotent: first build creates the app, later
+        // builds just bump the image tag — so every branch self-registers.
+        sh '''
+          set -eu
+          test -r "$KUBECONFIG" || { echo "no kubeconfig at $KUBECONFIG — run jenkins-up.sh with cluster access"; exit 1; }
+          sed -e "s|__BRANCH__|${BRANCH_NAME}|g" \
+              -e "s|__SLUG__|${BRANCH_SLUG}|g" \
+              -e "s|__SHA__|${SHA}|g" \
+              -e "s|__DB_NAME__|${DB_NAME}|g" \
+              -e "s|__NODEPORT__|${NODEPORT}|g" \
+              cicd/argocd/preview-app.template.yaml | kubectl apply -f -
+          echo "Registered ${APP_NAME} -> reachable on NodePort ${NODEPORT} once Synced."
+        '''
       }
     }
   }
 
   post {
     always  { sh 'docker logout ghcr.io || true' }
-    success { echo "✅ Pushed ${env.BACKEND_IMAGE}:${env.TAG} — ArgoCD will deploy ${env.APP_NAME}" }
+    success { echo "✅ Pushed ${env.BACKEND_IMAGE}:${env.TAG} — registered ${env.APP_NAME} (NodePort ${env.NODEPORT})" }
     failure { echo "❌ Build failed for ${env.BRANCH_NAME}" }
   }
 }
