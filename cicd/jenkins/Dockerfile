@@ -18,12 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# kubectl — the 'Deploy preview' stage applies a per-branch ArgoCD Application CR
-# to the cluster (reached at host.docker.internal:6443 via the mounted kubeconfig).
-RUN curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/$(dpkg --print-architecture)/kubectl" \
-        -o /usr/local/bin/kubectl \
-    && chmod 0755 /usr/local/bin/kubectl
-
 # Import corp CA into the OS trust store AND the Java truststore so that
 # jenkins-plugin-cli (and later pipeline HTTP calls) work behind a TLS-
 # intercepting proxy.  The CA is optional: if the build arg is not set or
@@ -39,6 +33,15 @@ RUN if [ -s /tmp/corp-ca.pem ]; then \
             -storepass changeit \
             -file /tmp/corp-ca.pem; \
     fi && rm -f /tmp/corp-ca.pem
+
+# kubectl — the 'Deploy preview' stage applies a per-branch ArgoCD Application CR
+# to the cluster (reached at host.docker.internal:6443 via the mounted kubeconfig).
+# Installed AFTER the corp-CA import so the dl.k8s.io fetch works behind a TLS-
+# intercepting proxy.
+RUN curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/$(dpkg --print-architecture)/kubectl" \
+        -o /usr/local/bin/kubectl \
+    && chmod 0755 /usr/local/bin/kubectl \
+    && kubectl version --client=true 2>/dev/null | head -1 || true
 
 # Skip the setup wizard; configuration comes from JCasC (casc.yaml) + plugins.txt.
 ENV JAVA_OPTS="-Djenkins.install.runSetupWizard=false"
