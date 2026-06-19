@@ -19,13 +19,30 @@
 # lima auto-forward — see cicd/README.md), with the URL shown in the ArgoCD app.
 #
 # Required env:
-#   GHCR_USER   GitHub username (ghcr owner)         e.g. pai-aditya
 #   GHCR_PAT    GitHub classic PAT, write:packages
 # Optional:
-#   ADMIN_PASSWORD   Jenkins admin password           [default: admin]
+#   GHCR_USER        GitHub username (ghcr owner)      [default: pai-aditya]
+#   ADMIN_PASSWORD   Jenkins admin password            [default: admin]
+#
+# Instead of exporting these every run, drop them in a gitignored '.secrets.local'
+# next to this script and they'll be picked up automatically, e.g.:
+#   GHCR_PAT=ghp_xxxxxxxxxxxxxxxxxxxx
+#   GHCR_USER=pai-aditya
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Load local secrets if present (.secrets.local is gitignored via *.local). It's a
+# plain KEY=value file; values already set in the environment win, so you can still
+# override per-run with e.g. `GHCR_PAT=ghp_other ./setup.sh`.
+if [[ -f "$ROOT/.secrets.local" ]]; then
+  while IFS='=' read -r k v; do
+    [[ "$k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue   # skip blanks/comments
+    [[ -n "${!k:-}" ]] && continue                        # env already set wins
+    export "$k=$v"
+  done < "$ROOT/.secrets.local"
+fi
+
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/kubeadm-mv.conf}"
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
@@ -35,7 +52,7 @@ step "0/6  Preflight"
 for bin in limactl kubectl helm docker; do
   command -v "$bin" >/dev/null || die "'$bin' not found on PATH"
 done
-: "${GHCR_USER:?set GHCR_USER (your GitHub username)}"
+export GHCR_USER="${GHCR_USER:-pai-aditya}"
 : "${GHCR_PAT:?set GHCR_PAT (PAT with write:packages)}"
 export ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin}"
 echo "  kubeconfig: $KUBECONFIG"
