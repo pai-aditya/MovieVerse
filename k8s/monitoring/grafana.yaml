@@ -119,6 +119,7 @@ spec:
           image: grafana/grafana:11.2.0
           ports:
             - containerPort: 3000
+              hostPort: 9090
               name: http
           env:
             - name: GF_SECURITY_ADMIN_USER

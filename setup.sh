@@ -139,8 +139,10 @@ cat <<EOF
 
 $(printf '\033[1;32m==> Stack is up.\033[0m')
 
-  Jenkins   http://localhost:8080            (admin / $ADMIN_PASSWORD)
-  ArgoCD    https://localhost:30443          (admin / ${ADMIN_PW:-<see argocd-initial-admin-secret>})
+  Jenkins    http://localhost:8080            (admin / $ADMIN_PASSWORD)
+  ArgoCD     https://localhost:30443          (admin / ${ADMIN_PW:-<see argocd-initial-admin-secret>})
+  Grafana    http://localhost:9090            (admin / admin)
+  Prometheus http://localhost:9091
 
 Next:
   • One-time, if you haven't: make the ghcr packages public

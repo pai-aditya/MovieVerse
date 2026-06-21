@@ -158,6 +158,7 @@ spec:
             - --web.enable-lifecycle
           ports:
             - containerPort: 9090
+              hostPort: 9091
               name: http
           resources:
             requests:
